@@ -38,7 +38,7 @@ function getWeekStart() {
   return now;
 }
 
-// ===== DAILY TOP =====
+// ===== DAILY + WEEKLY TOP =====
 async function postTopDaily(client) {
   const channel = client.channels.cache.get(TOP_CHANNEL_ID);
   if (!channel) return;
@@ -49,95 +49,102 @@ async function postTopDaily(client) {
   const today = new Date(czTime);
   today.setHours(0, 0, 0, 0);
 
+  const weekStart = new Date(czTime);
+  const day = weekStart.getDay() || 7;
+  if (day !== 1) {
+    weekStart.setHours(-24 * (day - 1));
+  }
+  weekStart.setHours(0, 0, 0, 0);
+
   const { data } = await supabase.from('prodeje').select('*');
 
-  let stats = {};
+  let todayStats = {};
+  let weekStats = {};
 
   data.forEach(z => {
     const d = new Date(z.datum);
+
     if (d >= today) {
-      if (!stats[z.user]) stats[z.user] = 0;
-      stats[z.user] += z.castka;
+      if (!todayStats[z.user]) todayStats[z.user] = 0;
+      todayStats[z.user] += z.castka;
+    }
+
+    if (d >= weekStart) {
+      if (!weekStats[z.user]) weekStats[z.user] = 0;
+      weekStats[z.user] += z.castka;
     }
   });
 
-  const sorted = Object.entries(stats)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
+  const topToday = Object.entries(todayStats).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const topWeek = Object.entries(weekStats).sort((a, b) => b[1] - a[1]).slice(0, 5);
 
-  if (sorted.length === 0) {
-    return channel.send("📭 Dnes zatím žádné prodeje.");
-  }
-
-  let msg = "🏆 TOP Dealers (dnes)\n\n";
+  let msg = "🏆 **TOP Dealers**\n\n";
   const medals = ["🥇", "🥈", "🥉"];
 
-  sorted.forEach((u, i) => {
-    const icon = medals[i] || `${i + 1}.`;
-    msg += `${icon} ${u[0]} — ${u[1]}$\n`;
-  });
+  msg += "📅 **Dnes:**\n";
+  if (topToday.length === 0) {
+    msg += "📭 Žádné prodeje\n";
+  } else {
+    topToday.forEach((u, i) => {
+      const icon = medals[i] || `${i + 1}.`;
+      msg += `${icon} ${u[0]} — ${u[1]}$\n`;
+    });
+  }
+
+  msg += "\n📆 **Tento týden:**\n";
+  if (topWeek.length === 0) {
+    msg += "📭 Žádné prodeje\n";
+  } else {
+    topWeek.forEach((u, i) => {
+      const icon = medals[i] || `${i + 1}.`;
+      msg += `${icon} ${u[0]} — ${u[1]}$\n`;
+    });
+  }
 
   channel.send(msg);
 }
 
-// ===== Slash commands =====
+// ===== Commands =====
 const commands = [
   new SlashCommandBuilder()
     .setName('prodej')
-    .setDescription('Zadej počet prodaných sáčků')
+    .setDescription('Prodej sáčků')
     .addIntegerOption(option =>
-      option.setName('pocet')
-        .setDescription('Počet sáčků (max 60)')
-        .setRequired(true)
+      option.setName('pocet').setDescription('Počet').setRequired(true)
     ),
 
-  new SlashCommandBuilder()
-    .setName('stav')
-    .setDescription('Zobrazí stav skladu'),
+  new SlashCommandBuilder().setName('stav').setDescription('Stav skladu'),
 
   new SlashCommandBuilder()
     .setName('sber')
-    .setDescription('Přidá trávu na sklad')
+    .setDescription('Přidá trávu')
     .addIntegerOption(option =>
-      option.setName('gramy')
-        .setDescription('Kolik gramů')
-        .setRequired(true)
+      option.setName('gramy').setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName('nakup')
-    .setDescription('Odečte peníze ze skladu')
+    .setDescription('Odečte peníze')
     .addIntegerOption(option =>
-      option.setName('castka')
-        .setDescription('Kolik $')
-        .setRequired(true)
+      option.setName('castka').setRequired(true)
     ),
 
-  new SlashCommandBuilder()
-    .setName('moje')
-    .setDescription('Zobrazí tvoje statistiky'),
+  new SlashCommandBuilder().setName('moje').setDescription('Moje stats'),
 
   new SlashCommandBuilder()
     .setName('pd')
-    .setDescription('Zabavené sáčky policií')
+    .setDescription('Zabavené sáčky')
     .addIntegerOption(option =>
-      option.setName('pocet')
-        .setDescription('Počet sáčků')
-        .setRequired(true)
+      option.setName('pocet').setRequired(true)
     ),
 
-  new SlashCommandBuilder()
-    .setName('ztraty')
-    .setDescription('Zobrazí tvoje ztráty')
+  new SlashCommandBuilder().setName('ztraty').setDescription('Moje ztráty')
 ];
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 
 (async () => {
-  await rest.put(
-    Routes.applicationCommands(CLIENT_ID),
-    { body: commands }
-  );
+  await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
 })();
 
 // ===== INTERACTIONS =====
@@ -147,48 +154,31 @@ client.on('interactionCreate', async interaction => {
   const logChannel = interaction.guild.channels.cache.get(LOG_CHANNEL_ID);
   const user = interaction.member.displayName;
 
+  // PRODEJ
   if (interaction.commandName === 'prodej') {
     const pocet = interaction.options.getInteger('pocet');
-
-    if (pocet > 60) {
-      return interaction.reply({ content: "Max je 60 sáčků.", ephemeral: true });
-    }
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const { data: prodeje } = await supabase
-      .from('prodeje')
-      .select('*')
-      .eq('user', user);
+    const { data: prodeje } = await supabase.from('prodeje').select('*').eq('user', user);
 
-    let dnesProdano = 0;
-
+    let dnes = 0;
     prodeje.forEach(z => {
-      const d = new Date(z.datum);
-      if (d >= today) dnesProdano += z.pocet;
+      if (new Date(z.datum) >= today) dnes += z.pocet;
     });
 
-    const zbyva = 60 - dnesProdano;
-
-    if (pocet > zbyva) {
-      return interaction.reply({
-        content: `❌ Dnes můžeš prodat ještě ${zbyva} sáčků.`,
-        ephemeral: true
-      });
+    if (pocet > (60 - dnes)) {
+      return interaction.reply({ content: `❌ Zbývá ${60 - dnes}`, ephemeral: true });
     }
 
     const castka = vypocet(pocet);
     const spotreba = pocet * 5;
 
-    const { data: sklad } = await supabase
-      .from('sklad')
-      .select('*')
-      .eq('id', 1)
-      .single();
+    const { data: sklad } = await supabase.from('sklad').select('*').eq('id', 1).single();
 
     if (sklad.trava < spotreba) {
-      return interaction.reply({ content: "❌ Není dost trávy!", ephemeral: true });
+      return interaction.reply({ content: "❌ Málo trávy", ephemeral: true });
     }
 
     await supabase.from('sklad').update({
@@ -197,34 +187,26 @@ client.on('interactionCreate', async interaction => {
     }).eq('id', 1);
 
     await supabase.from('prodeje').insert({
-      user,
-      pocet,
-      castka,
-      datum: new Date()
+      user, pocet, castka, datum: new Date()
     });
 
-    await interaction.reply({
-      content: `💰 ${castka}$ | 📦 ${dnesProdano + pocet}/60`,
+    interaction.reply({
+      content: `💰 ${castka}$ | 📦 ${dnes + pocet}/60`,
       ephemeral: true
     });
 
-    if (logChannel) {
-      logChannel.send(`📥 ${user} → ${pocet} ks (${castka}$)`);
-    }
+    if (logChannel) logChannel.send(`📥 ${user} ${pocet} ks (${castka}$)`);
   }
 
+  // PD
   if (interaction.commandName === 'pd') {
     const pocet = interaction.options.getInteger('pocet');
     const gramy = pocet * 5;
 
-    const { data: sklad } = await supabase
-      .from('sklad')
-      .select('*')
-      .eq('id', 1)
-      .single();
+    const { data: sklad } = await supabase.from('sklad').select('*').eq('id', 1).single();
 
     if (sklad.trava < gramy) {
-      return interaction.reply({ content: "❌ Není dost trávy.", ephemeral: true });
+      return interaction.reply({ content: "❌ Málo trávy", ephemeral: true });
     }
 
     await supabase.from('sklad').update({
@@ -232,59 +214,56 @@ client.on('interactionCreate', async interaction => {
     }).eq('id', 1);
 
     await supabase.from('ztraty').insert({
-      user,
-      pocet,
-      gramy,
-      datum: new Date()
+      user, pocet, gramy, datum: new Date()
     });
 
-    await interaction.reply({
-      content: `🚔 ${pocet} sáčků (${gramy}g)`,
+    interaction.reply({
+      content: `🚔 ${pocet} ks (${gramy}g)`,
       ephemeral: true
     });
   }
 
+  // ZTRATY
   if (interaction.commandName === 'ztraty') {
     const weekStart = getWeekStart();
 
-    const { data } = await supabase
-      .from('ztraty')
-      .select('*')
-      .eq('user', user);
+    const { data } = await supabase.from('ztraty').select('*').eq('user', user);
 
-    let week = 0;
-    let total = 0;
+    let week = 0, total = 0;
 
     data.forEach(z => {
-      const d = new Date(z.datum);
       total += z.gramy;
-      if (d >= weekStart) week += z.gramy;
+      if (new Date(z.datum) >= weekStart) week += z.gramy;
     });
 
-    await interaction.reply({
-      content: `📉 Týden: ${week}g (~${Math.floor(week/5)} sáčků)\n📊 Celkem: ${total}g (~${Math.floor(total/5)} sáčků)`,
+    interaction.reply({
+      content: `📉 Týden: ${week}g (~${Math.floor(week/5)})\n📊 Celkem: ${total}g (~${Math.floor(total/5)})`,
+      ephemeral: true
+    });
+  }
+
+  // STAV
+  if (interaction.commandName === 'stav') {
+    const { data: sklad } = await supabase.from('sklad').select('*').eq('id', 1).single();
+
+    interaction.reply({
+      content: `💰 ${sklad.penize}$ | 🌿 ${sklad.trava}g (~${Math.floor(sklad.trava/5)})`,
       ephemeral: true
     });
   }
 });
 
-// ===== TIMER (CZ čas) =====
+// ===== TIMER CZ =====
 let lastRun = null;
 
 client.once('ready', () => {
-  console.log('Bot ready');
-
   setInterval(() => {
     const now = new Date();
-    const czTime = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Prague" }));
+    const cz = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Prague" }));
 
-    const key = czTime.toDateString() + czTime.getHours() + czTime.getMinutes();
+    const key = cz.toDateString() + cz.getHours() + cz.getMinutes();
 
-    if (
-      czTime.getHours() === TOP_HOUR &&
-      czTime.getMinutes() === TOP_MINUTE &&
-      lastRun !== key
-    ) {
+    if (cz.getHours() === TOP_HOUR && cz.getMinutes() === TOP_MINUTE && lastRun !== key) {
       lastRun = key;
       postTopDaily(client);
     }
