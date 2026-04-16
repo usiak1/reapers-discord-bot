@@ -144,6 +144,7 @@ client.on('interactionCreate', async interaction => {
   const user = interaction.member.displayName;
   const logChannel = interaction.guild.channels.cache.get(LOG_CHANNEL_ID);
 
+  // ===== PRODEJ =====
   if (interaction.commandName === 'prodej') {
     const pocet = interaction.options.getInteger('pocet');
 
@@ -179,14 +180,15 @@ client.on('interactionCreate', async interaction => {
       user, pocet, castka, datum: new Date()
     });
 
-    interaction.reply({
+    await interaction.reply({
       content: `💰 ${castka}$ | ${dnes + pocet}/60`,
       ephemeral: true
     });
 
-    if (logChannel) logChannel.send(`📥 ${user} ${pocet} ks`);
+    if (logChannel) logChannel.send(`📥 ${user} ${pocet} ks (${castka}$)`);
   }
 
+  // ===== PD =====
   if (interaction.commandName === 'pd') {
     const pocet = interaction.options.getInteger('pocet');
     const gramy = pocet * 5;
@@ -205,12 +207,63 @@ client.on('interactionCreate', async interaction => {
       user, pocet, gramy, datum: new Date()
     });
 
-    interaction.reply({
+    await interaction.reply({
       content: `🚔 ${pocet} ks (${gramy}g)`,
+      ephemeral: true
+    });
+
+    if (logChannel) {
+      logChannel.send(`🚔 ${user} přišel o ${pocet} ks (${gramy}g)`);
+    }
+  }
+
+  // ===== MOJE =====
+  if (interaction.commandName === 'moje') {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const weekStart = getWeekStart();
+
+    const { data } = await supabase
+      .from('prodeje')
+      .select('*')
+      .eq('user', user);
+
+    let todayMoney = 0;
+    let todayPocet = 0;
+    let weekMoney = 0;
+    let weekPocet = 0;
+
+    data.forEach(z => {
+      const d = new Date(z.datum);
+
+      if (d >= today) {
+        todayMoney += z.castka;
+        todayPocet += z.pocet;
+      }
+
+      if (d >= weekStart) {
+        weekMoney += z.castka;
+        weekPocet += z.pocet;
+      }
+    });
+
+    await interaction.reply({
+      content:
+`📊 Moje statistiky
+
+📅 Dnes:
+💰 ${todayMoney}$
+📦 ${todayPocet} ks
+
+📆 Tento týden:
+💰 ${weekMoney}$
+📦 ${weekPocet} ks`,
       ephemeral: true
     });
   }
 
+  // ===== ZTRATY =====
   if (interaction.commandName === 'ztraty') {
     const weekStart = getWeekStart();
 
@@ -223,16 +276,17 @@ client.on('interactionCreate', async interaction => {
       if (new Date(z.datum) >= weekStart) week += z.gramy;
     });
 
-    interaction.reply({
+    await interaction.reply({
       content: `📉 Týden: ${week}g (~${Math.floor(week/5)})\n📊 Celkem: ${total}g (~${Math.floor(total/5)})`,
       ephemeral: true
     });
   }
 
+  // ===== STAV =====
   if (interaction.commandName === 'stav') {
     const { data: sklad } = await supabase.from('sklad').select('*').eq('id',1).single();
 
-    interaction.reply({
+    await interaction.reply({
       content: `💰 ${sklad.penize}$ | 🌿 ${sklad.trava}g (~${Math.floor(sklad.trava/5)})`,
       ephemeral: true
     });
