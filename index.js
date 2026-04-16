@@ -60,6 +60,11 @@ const commands = [
     .addIntegerOption(o => o.setName('pocet').setDescription('Počet sáčků').setRequired(true)),
 
   new SlashCommandBuilder()
+    .setName('pd')
+    .setDescription('Zabavené sáčky (policie)')
+    .addIntegerOption(o => o.setName('pocet').setDescription('Počet zabavených sáčků').setRequired(true)),
+
+  new SlashCommandBuilder()
     .setName('stav')
     .setDescription('Zobrazí stav skladu'),
 
@@ -98,15 +103,12 @@ client.on('interactionCreate', async interaction => {
   try {
     const user_id = interaction.user.id;
     const user_name = interaction.member?.displayName || interaction.user.username;
-
     const logChannel = await client.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
 
-    // ===== SLASH =====
     if (interaction.isChatInputCommand()) {
 
       // ===== PRODEJ =====
       if (interaction.commandName === 'prodej') {
-
         const pocet = interaction.options.getInteger('pocet');
 
         const today = new Date();
@@ -148,6 +150,28 @@ client.on('interactionCreate', async interaction => {
         }
       }
 
+      // ===== PD =====
+      if (interaction.commandName === 'pd') {
+        const pocet = interaction.options.getInteger('pocet');
+        const gramy = pocet * 5;
+
+        await supabase.from('ztraty').insert({
+          user_id,
+          user_name,
+          gramy,
+          datum: new Date()
+        });
+
+        await interaction.reply({
+          content: `🚔 Zabaveno: ${pocet} sáčků (-${gramy}g)`,
+          ephemeral: true
+        });
+
+        if (logChannel) {
+          logChannel.send(`🚔 ${user_name} byl chycen → -${pocet} sáčků (-${gramy}g)`);
+        }
+      }
+
       // ===== STAV =====
       if (interaction.commandName === 'stav') {
         const { data: sklad } = await supabase.from('sklad').select('*').eq('id',1).single();
@@ -155,6 +179,20 @@ client.on('interactionCreate', async interaction => {
           content:`💰 ${sklad.penize}$ | 🌿 ${sklad.trava}g (~${Math.floor(sklad.trava/5)} sáčků)`,
           ephemeral:true
         });
+      }
+
+      // ===== MOJE =====
+      if (interaction.commandName === 'moje') {
+        const { data } = await supabase.from('prodeje').select('*').eq('user_id', user_id);
+        const total = data.reduce((a,b)=>a+b.castka,0);
+        return interaction.reply({ content:`💰 ${total}$`, ephemeral:true });
+      }
+
+      // ===== ZTRATY =====
+      if (interaction.commandName === 'ztraty') {
+        const { data } = await supabase.from('ztraty').select('*').eq('user_id', user_id);
+        const total = data.reduce((a,b)=>a+b.gramy,0);
+        return interaction.reply({ content:`📉 ${total}g (~${Math.floor(total/5)} sáčků)`, ephemeral:true });
       }
 
       // ===== SBER =====
@@ -191,20 +229,6 @@ client.on('interactionCreate', async interaction => {
         if (logChannel) {
           logChannel.send(`💸 ${user_name} utratil -${c}$`);
         }
-      }
-
-      // ===== MOJE =====
-      if (interaction.commandName === 'moje') {
-        const { data } = await supabase.from('prodeje').select('*').eq('user_id', user_id);
-        const total = data.reduce((a,b)=>a+b.castka,0);
-        return interaction.reply({ content:`💰 ${total}$`, ephemeral:true });
-      }
-
-      // ===== ZTRATY =====
-      if (interaction.commandName === 'ztraty') {
-        const { data } = await supabase.from('ztraty').select('*').eq('user_id', user_id);
-        const total = data.reduce((a,b)=>a+b.gramy,0);
-        return interaction.reply({ content:`📉 ${total}g (~${Math.floor(total/5)} sáčků)`, ephemeral:true });
       }
 
       // ===== KALKULACE =====
@@ -266,7 +290,7 @@ client.on('interactionCreate', async interaction => {
 
       return interaction.reply({
         content:
-`🛒 **NÁHLED NÁKUPU**
+`🛒 NÁHLED NÁKUPU
 
 🌱 Semínka: ${data.seminko}
 💧 Voda: ${data.voda}
@@ -317,7 +341,7 @@ client.on('interactionCreate', async interaction => {
         });
 
         if (logChannel) {
-logChannel.send(
+          logChannel.send(
 `🛒 ${user_name} nakoupil suroviny → ${total}$
 
 🌱 Semínka: ${data.seminko}
@@ -325,7 +349,7 @@ logChannel.send(
 🧪 Kvalitní hnojivo: ${data.hnojivo_k}
 🪣 Konev: ${data.konev}
 🧴 Hnojivo: ${data.hnojivo}`
-);
+          );
         }
       }
 
