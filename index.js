@@ -144,7 +144,7 @@ client.on('interactionCreate', async interaction => {
         await interaction.reply({ content:`💰 ${castka}$ | ${dnes+pocet}/60`, ephemeral:true });
 
         if (logChannel) {
-          logChannel.send(`📥 PRODEJ\n👤 ${user_name}\n📦 ${pocet} ks\n💰 ${castka}$`);
+          logChannel.send(`📥 ${user_name} prodal ${pocet} sáčků → ${castka}$ | -${spotreba}g`);
         }
       }
 
@@ -169,7 +169,7 @@ client.on('interactionCreate', async interaction => {
         await interaction.reply({ content:`🌿 +${g}g`, ephemeral:true });
 
         if (logChannel) {
-          logChannel.send(`🌿 SBĚR\n👤 ${user_name}\n+${g}g`);
+          logChannel.send(`🌿 ${user_name} nasbíral +${g}g`);
         }
       }
 
@@ -189,7 +189,7 @@ client.on('interactionCreate', async interaction => {
         await interaction.reply({ content:`💸 -${c}$`, ephemeral:true });
 
         if (logChannel) {
-          logChannel.send(`💸 NÁKUP\n👤 ${user_name}\n-${c}$`);
+          logChannel.send(`💸 ${user_name} utratil -${c}$`);
         }
       }
 
@@ -318,17 +318,8 @@ client.on('interactionCreate', async interaction => {
 
         if (logChannel) {
           logChannel.send(
-`🛒 NÁKUP SUROVIN
-
-👤 ${user_name}
-
-🌱 ${data.seminko}
-💧 ${data.voda}
-🧪 ${data.hnojivo_k}
-🪣 ${data.konev}
-🧴 ${data.hnojivo}
-
-💰 ${total}$`
+`🛒 ${user_name} nakoupil suroviny → ${total}$
+🌱${data.seminko} 💧${data.voda} 🧪${data.hnojivo_k} 🪣${data.konev} 🧴${data.hnojivo}`
           );
         }
       }
