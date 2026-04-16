@@ -9,7 +9,6 @@ const TOP_CHANNEL_ID = process.env.TOP_CHANNEL_ID;
 const TOP_HOUR = parseInt(process.env.TOP_HOUR);
 const TOP_MINUTE = parseInt(process.env.TOP_MINUTE);
 
-// ===== Supabase =====
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_KEY
@@ -58,24 +57,32 @@ async function postTopDaily(client) {
     const d = new Date(z.datum);
 
     if (d >= today) {
-      todayStats[z.user] = (todayStats[z.user] || 0) + z.castka;
+      if (!todayStats[z.user_id]) {
+        todayStats[z.user_id] = { name: z.user_name, money: 0 };
+      }
+      todayStats[z.user_id].money += z.castka;
+      todayStats[z.user_id].name = z.user_name;
     }
 
     if (d >= weekStart) {
-      weekStats[z.user] = (weekStats[z.user] || 0) + z.castka;
+      if (!weekStats[z.user_id]) {
+        weekStats[z.user_id] = { name: z.user_name, money: 0 };
+      }
+      weekStats[z.user_id].money += z.castka;
+      weekStats[z.user_id].name = z.user_name;
     }
   });
 
-  const topToday = Object.entries(todayStats).sort((a,b)=>b[1]-a[1]).slice(0,5);
-  const topWeek = Object.entries(weekStats).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const topToday = Object.values(todayStats).sort((a,b)=>b.money-a.money).slice(0,5);
+  const topWeek = Object.values(weekStats).sort((a,b)=>b.money-a.money).slice(0,5);
 
   let msg = "🏆 TOP Dealers\n\n";
 
   msg += "📅 Dnes:\n";
-  topToday.forEach((u,i)=> msg += `${i+1}. ${u[0]} — ${u[1]}$\n`);
+  topToday.forEach((u,i)=> msg += `${i+1}. ${u.name} — ${u.money}$\n`);
 
   msg += "\n📆 Týden:\n";
-  topWeek.forEach((u,i)=> msg += `${i+1}. ${u[0]} — ${u[1]}$\n`);
+  topWeek.forEach((u,i)=> msg += `${i+1}. ${u.name} — ${u.money}$\n`);
 
   channel.send(msg);
 }
@@ -86,49 +93,35 @@ const commands = [
     .setName('prodej')
     .setDescription('Prodej sáčků')
     .addIntegerOption(option =>
-      option.setName('pocet')
-        .setDescription('Počet sáčků')
-        .setRequired(true)
+      option.setName('pocet').setDescription('Počet sáčků').setRequired(true)
     ),
 
-  new SlashCommandBuilder()
-    .setName('stav')
-    .setDescription('Stav skladu'),
+  new SlashCommandBuilder().setName('stav').setDescription('Stav skladu'),
 
   new SlashCommandBuilder()
     .setName('sber')
     .setDescription('Přidá trávu')
     .addIntegerOption(option =>
-      option.setName('gramy')
-        .setDescription('Počet gramů')
-        .setRequired(true)
+      option.setName('gramy').setDescription('Gramy').setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName('nakup')
     .setDescription('Odečte peníze')
     .addIntegerOption(option =>
-      option.setName('castka')
-        .setDescription('Částka')
-        .setRequired(true)
+      option.setName('castka').setDescription('Částka').setRequired(true)
     ),
 
-  new SlashCommandBuilder()
-    .setName('moje')
-    .setDescription('Moje statistiky'),
+  new SlashCommandBuilder().setName('moje').setDescription('Moje statistiky'),
 
   new SlashCommandBuilder()
     .setName('pd')
     .setDescription('Zabavené sáčky')
     .addIntegerOption(option =>
-      option.setName('pocet')
-        .setDescription('Počet sáčků')
-        .setRequired(true)
+      option.setName('pocet').setDescription('Počet sáčků').setRequired(true)
     ),
 
-  new SlashCommandBuilder()
-    .setName('ztraty')
-    .setDescription('Moje ztráty')
+  new SlashCommandBuilder().setName('ztraty').setDescription('Moje ztráty')
 ];
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -141,7 +134,9 @@ const rest = new REST({ version: '10' }).setToken(TOKEN);
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
-  const user = interaction.member.displayName;
+  const user_id = interaction.user.id;
+  const user_name = interaction.member.displayName;
+
   const logChannel = interaction.guild.channels.cache.get(LOG_CHANNEL_ID);
 
   // ===== PRODEJ =====
@@ -151,7 +146,7 @@ client.on('interactionCreate', async interaction => {
     const today = new Date();
     today.setHours(0,0,0,0);
 
-    const { data } = await supabase.from('prodeje').select('*').eq('user', user);
+    const { data } = await supabase.from('prodeje').select('*').eq('user_id', user_id);
 
     let dnes = 0;
     data.forEach(z => {
@@ -177,7 +172,11 @@ client.on('interactionCreate', async interaction => {
     }).eq('id',1);
 
     await supabase.from('prodeje').insert({
-      user, pocet, castka, datum: new Date()
+      user_id,
+      user_name,
+      pocet,
+      castka,
+      datum: new Date()
     });
 
     await interaction.reply({
@@ -185,7 +184,7 @@ client.on('interactionCreate', async interaction => {
       ephemeral: true
     });
 
-    if (logChannel) logChannel.send(`📥 ${user} ${pocet} ks (${castka}$)`);
+    if (logChannel) logChannel.send(`📥 ${user_name} ${pocet} ks (${castka}$)`);
   }
 
   // ===== PD =====
@@ -204,7 +203,11 @@ client.on('interactionCreate', async interaction => {
     }).eq('id',1);
 
     await supabase.from('ztraty').insert({
-      user, pocet, gramy, datum: new Date()
+      user_id,
+      user_name,
+      pocet,
+      gramy,
+      datum: new Date()
     });
 
     await interaction.reply({
@@ -213,7 +216,7 @@ client.on('interactionCreate', async interaction => {
     });
 
     if (logChannel) {
-      logChannel.send(`🚔 ${user} přišel o ${pocet} ks (${gramy}g)`);
+      logChannel.send(`🚔 ${user_name} přišel o ${pocet} ks (${gramy}g)`);
     }
   }
 
@@ -227,7 +230,7 @@ client.on('interactionCreate', async interaction => {
     const { data } = await supabase
       .from('prodeje')
       .select('*')
-      .eq('user', user);
+      .eq('user_id', user_id);
 
     let todayMoney = 0;
     let todayPocet = 0;
@@ -267,7 +270,7 @@ client.on('interactionCreate', async interaction => {
   if (interaction.commandName === 'ztraty') {
     const weekStart = getWeekStart();
 
-    const { data } = await supabase.from('ztraty').select('*').eq('user', user);
+    const { data } = await supabase.from('ztraty').select('*').eq('user_id', user_id);
 
     let week = 0, total = 0;
 
