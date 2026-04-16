@@ -57,11 +57,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName('prodej')
     .setDescription('Prodej sáčků')
-    .addIntegerOption(o =>
-      o.setName('pocet')
-        .setDescription('Počet sáčků')
-        .setRequired(true)
-    ),
+    .addIntegerOption(o => o.setName('pocet').setDescription('Počet sáčků').setRequired(true)),
 
   new SlashCommandBuilder()
     .setName('stav')
@@ -78,29 +74,17 @@ const commands = [
   new SlashCommandBuilder()
     .setName('sber')
     .setDescription('Přidá trávu na sklad')
-    .addIntegerOption(o =>
-      o.setName('gramy')
-        .setDescription('Kolik gramů')
-        .setRequired(true)
-    ),
+    .addIntegerOption(o => o.setName('gramy').setDescription('Kolik gramů').setRequired(true)),
 
   new SlashCommandBuilder()
     .setName('nakup')
     .setDescription('Odečte peníze ze skladu')
-    .addIntegerOption(o =>
-      o.setName('castka')
-        .setDescription('Kolik peněz')
-        .setRequired(true)
-    ),
+    .addIntegerOption(o => o.setName('castka').setDescription('Kolik peněz').setRequired(true)),
 
   new SlashCommandBuilder()
     .setName('kalkulace')
     .setDescription('Kalkulace nákupu surovin')
-    .addIntegerOption(o =>
-      o.setName('pocet')
-        .setDescription('Počet kytek')
-        .setRequired(true)
-    )
+    .addIntegerOption(o => o.setName('pocet').setDescription('Počet kytek').setRequired(true))
 ];
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -114,22 +98,21 @@ client.on('interactionCreate', async interaction => {
   try {
     const user_id = interaction.user.id;
     const user_name = interaction.member?.displayName || interaction.user.username;
-    const logChannel = interaction.guild?.channels.cache.get(LOG_CHANNEL_ID);
+
+    const logChannel = await client.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
 
     // ===== SLASH =====
     if (interaction.isChatInputCommand()) {
 
       // ===== PRODEJ =====
       if (interaction.commandName === 'prodej') {
+
         const pocet = interaction.options.getInteger('pocet');
 
         const today = new Date();
         today.setHours(0,0,0,0);
 
-        const { data } = await supabase
-          .from('prodeje')
-          .select('*')
-          .eq('user_id', user_id);
+        const { data } = await supabase.from('prodeje').select('*').eq('user_id', user_id);
 
         let dnes = 0;
         data.forEach(z=>{
@@ -158,13 +141,20 @@ client.on('interactionCreate', async interaction => {
           user_id, user_name, pocet, castka, datum:new Date()
         });
 
-        return interaction.reply({ content:`💰 ${castka}$ | ${dnes+pocet}/60`, ephemeral:true });
+        await interaction.reply({ content:`💰 ${castka}$ | ${dnes+pocet}/60`, ephemeral:true });
+
+        if (logChannel) {
+          logChannel.send(`📥 PRODEJ\n👤 ${user_name}\n📦 ${pocet} ks\n💰 ${castka}$`);
+        }
       }
 
       // ===== STAV =====
       if (interaction.commandName === 'stav') {
         const { data: sklad } = await supabase.from('sklad').select('*').eq('id',1).single();
-        return interaction.reply({ content:`💰 ${sklad.penize}$ | 🌿 ${sklad.trava}g (~${Math.floor(sklad.trava/5)} sáčků)`, ephemeral:true });
+        return interaction.reply({
+          content:`💰 ${sklad.penize}$ | 🌿 ${sklad.trava}g (~${Math.floor(sklad.trava/5)} sáčků)`,
+          ephemeral:true
+        });
       }
 
       // ===== SBER =====
@@ -176,7 +166,11 @@ client.on('interactionCreate', async interaction => {
           trava: sklad.trava + g
         }).eq('id',1);
 
-        return interaction.reply({ content:`🌿 +${g}g`, ephemeral:true });
+        await interaction.reply({ content:`🌿 +${g}g`, ephemeral:true });
+
+        if (logChannel) {
+          logChannel.send(`🌿 SBĚR\n👤 ${user_name}\n+${g}g`);
+        }
       }
 
       // ===== NAKUP =====
@@ -192,29 +186,36 @@ client.on('interactionCreate', async interaction => {
           penize: sklad.penize - c
         }).eq('id',1);
 
-        return interaction.reply({ content:`💸 -${c}$`, ephemeral:true });
+        await interaction.reply({ content:`💸 -${c}$`, ephemeral:true });
+
+        if (logChannel) {
+          logChannel.send(`💸 NÁKUP\n👤 ${user_name}\n-${c}$`);
+        }
       }
 
       // ===== MOJE =====
       if (interaction.commandName === 'moje') {
         const { data } = await supabase.from('prodeje').select('*').eq('user_id', user_id);
         const total = data.reduce((a,b)=>a+b.castka,0);
-        return interaction.reply({ content:`💰 Celkem vyděláno: ${total}$`, ephemeral:true });
+        return interaction.reply({ content:`💰 ${total}$`, ephemeral:true });
       }
 
       // ===== ZTRATY =====
       if (interaction.commandName === 'ztraty') {
         const { data } = await supabase.from('ztraty').select('*').eq('user_id', user_id);
         const total = data.reduce((a,b)=>a+b.gramy,0);
-        return interaction.reply({ content:`📉 Celkové ztráty: ${total}g (~${Math.floor(total/5)} sáčků)`, ephemeral:true });
+        return interaction.reply({ content:`📉 ${total}g (~${Math.floor(total/5)} sáčků)`, ephemeral:true });
       }
 
       // ===== KALKULACE =====
       if (interaction.commandName === 'kalkulace') {
+
+        delete pendingOrders[user_id];
+
         const p = interaction.options.getInteger('pocet');
 
         const modal = new ModalBuilder()
-          .setCustomId('nakup_modal')
+          .setCustomId(`nakup_modal_${user_id}_${Date.now()}`)
           .setTitle('Nákup surovin');
 
         const row = (id,label,val)=>
@@ -239,7 +240,7 @@ client.on('interactionCreate', async interaction => {
     }
 
     // ===== MODAL =====
-    if (interaction.isModalSubmit() && interaction.customId === 'nakup_modal') {
+    if (interaction.isModalSubmit() && interaction.customId.startsWith('nakup_modal')) {
 
       const data = {
         seminko: num(interaction.fields.getTextInputValue('seminko')),
@@ -265,16 +266,16 @@ client.on('interactionCreate', async interaction => {
 
       return interaction.reply({
         content:
-`🛒 **NÁHLED NÁKUPU**
+`🛒 NÁHLED
 
-🌱 Semínka: ${data.seminko}
-💧 Voda: ${data.voda}
-🧪 Kvalitní hnojivo: ${data.hnojivo_k}
-🪣 Konev: ${data.konev}
-🧴 Hnojivo: ${data.hnojivo}
+🌱 ${data.seminko}
+💧 ${data.voda}
+🧪 ${data.hnojivo_k}
+🪣 ${data.konev}
+🧴 ${data.hnojivo}
 
-💰 Cena: ${total}$
-⏰ Platnost: 2 minuty`,
+💰 ${total}$
+⏰ 2 min`,
         components:[buttons],
         ephemeral:true
       });
@@ -286,12 +287,12 @@ client.on('interactionCreate', async interaction => {
       const order = pendingOrders[user_id];
 
       if (!order) {
-        return interaction.reply({ content:"❌ Objednávka neexistuje", ephemeral:true });
+        return interaction.reply({ content:"❌ Expirace", ephemeral:true });
       }
 
       if (Date.now() - order.createdAt > 120000) {
         delete pendingOrders[user_id];
-        return interaction.reply({ content:"⏰ Objednávka vypršela", ephemeral:true });
+        return interaction.reply({ content:"⏰ Vypršelo", ephemeral:true });
       }
 
       if (interaction.customId === 'confirm_buy') {
@@ -301,7 +302,7 @@ client.on('interactionCreate', async interaction => {
         const { data: sklad } = await supabase.from('sklad').select('*').eq('id',1).single();
 
         if (sklad.penize < total) {
-          return interaction.reply({ content:"❌ Nedostatek peněz", ephemeral:true });
+          return interaction.reply({ content:"❌ Málo peněz", ephemeral:true });
         }
 
         await supabase.from('sklad').update({
@@ -317,17 +318,17 @@ client.on('interactionCreate', async interaction => {
 
         if (logChannel) {
           logChannel.send(
-`🛒 **NÁKUP SUROVIN**
+`🛒 NÁKUP SUROVIN
 
 👤 ${user_name}
 
-🌱 Semínka: ${data.seminko}
-💧 Voda: ${data.voda}
-🧪 Kvalitní hnojivo: ${data.hnojivo_k}
-🪣 Konev: ${data.konev}
-🧴 Hnojivo: ${data.hnojivo}
+🌱 ${data.seminko}
+💧 ${data.voda}
+🧪 ${data.hnojivo_k}
+🪣 ${data.konev}
+🧴 ${data.hnojivo}
 
-💰 Celkem: ${total}$`
+💰 ${total}$`
           );
         }
       }
@@ -340,7 +341,6 @@ client.on('interactionCreate', async interaction => {
 
   } catch (err) {
     console.error(err);
-
     if (!interaction.replied) {
       interaction.reply({ content:"❌ Chyba aplikace", ephemeral:true });
     }
