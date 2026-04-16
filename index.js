@@ -43,7 +43,10 @@ async function postTopDaily(client) {
   const channel = client.channels.cache.get(TOP_CHANNEL_ID);
   if (!channel) return;
 
-  const today = new Date();
+  const now = new Date();
+  const czTime = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Prague" }));
+
+  const today = new Date(czTime);
   today.setHours(0, 0, 0, 0);
 
   const { data } = await supabase.from('prodeje').select('*');
@@ -144,7 +147,6 @@ client.on('interactionCreate', async interaction => {
   const logChannel = interaction.guild.channels.cache.get(LOG_CHANNEL_ID);
   const user = interaction.member.displayName;
 
-  // ===== PRODEJ =====
   if (interaction.commandName === 'prodej') {
     const pocet = interaction.options.getInteger('pocet');
 
@@ -211,7 +213,6 @@ client.on('interactionCreate', async interaction => {
     }
   }
 
-  // ===== PD =====
   if (interaction.commandName === 'pd') {
     const pocet = interaction.options.getInteger('pocet');
     const gramy = pocet * 5;
@@ -241,13 +242,8 @@ client.on('interactionCreate', async interaction => {
       content: `🚔 ${pocet} sáčků (${gramy}g)`,
       ephemeral: true
     });
-
-    if (logChannel) {
-      logChannel.send(`🚔 ${user} přišel o ${pocet} ks (${gramy}g)`);
-    }
   }
 
-  // ===== ZTRATY =====
   if (interaction.commandName === 'ztraty') {
     const weekStart = getWeekStart();
 
@@ -261,89 +257,18 @@ client.on('interactionCreate', async interaction => {
 
     data.forEach(z => {
       const d = new Date(z.datum);
-
       total += z.gramy;
       if (d >= weekStart) week += z.gramy;
     });
 
-    const weekSacky = Math.floor(week / 5);
-    const totalSacky = Math.floor(total / 5);
-
     await interaction.reply({
-      content:
-`📉 Ztráty
-
-📆 Tento týden:
-🌿 ${week}g (~${weekSacky} sáčků)
-
-📊 Celkem:
-🌿 ${total}g (~${totalSacky} sáčků)`,
-      ephemeral: true
-    });
-  }
-
-  // ===== STAV =====
-  if (interaction.commandName === 'stav') {
-    const { data: sklad } = await supabase
-      .from('sklad')
-      .select('*')
-      .eq('id', 1)
-      .single();
-
-    const sacky = Math.floor(sklad.trava / 5);
-
-    await interaction.reply({
-      content: `💰 ${sklad.penize}$ | 🌿 ${sklad.trava}g (~${sacky} sáčků)`,
-      ephemeral: true
-    });
-  }
-
-  // ===== SBER =====
-  if (interaction.commandName === 'sber') {
-    const gramy = interaction.options.getInteger('gramy');
-
-    const { data: sklad } = await supabase
-      .from('sklad')
-      .select('*')
-      .eq('id', 1)
-      .single();
-
-    await supabase.from('sklad').update({
-      trava: sklad.trava + gramy
-    }).eq('id', 1);
-
-    await interaction.reply({
-      content: `🌿 +${gramy}g`,
-      ephemeral: true
-    });
-  }
-
-  // ===== NAKUP =====
-  if (interaction.commandName === 'nakup') {
-    const castka = interaction.options.getInteger('castka');
-
-    const { data: sklad } = await supabase
-      .from('sklad')
-      .select('*')
-      .eq('id', 1)
-      .single();
-
-    if (sklad.penize < castka) {
-      return interaction.reply({ content: "❌ Málo peněz!", ephemeral: true });
-    }
-
-    await supabase.from('sklad').update({
-      penize: sklad.penize - castka
-    }).eq('id', 1);
-
-    await interaction.reply({
-      content: `💸 -${castka}$`,
+      content: `📉 Týden: ${week}g (~${Math.floor(week/5)} sáčků)\n📊 Celkem: ${total}g (~${Math.floor(total/5)} sáčků)`,
       ephemeral: true
     });
   }
 });
 
-// ===== TIMER =====
+// ===== TIMER (CZ čas) =====
 let lastRun = null;
 
 client.once('ready', () => {
@@ -351,9 +276,15 @@ client.once('ready', () => {
 
   setInterval(() => {
     const now = new Date();
-    const key = now.toDateString() + now.getHours() + now.getMinutes();
+    const czTime = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Prague" }));
 
-    if (now.getHours() === TOP_HOUR && now.getMinutes() === TOP_MINUTE && lastRun !== key) {
+    const key = czTime.toDateString() + czTime.getHours() + czTime.getMinutes();
+
+    if (
+      czTime.getHours() === TOP_HOUR &&
+      czTime.getMinutes() === TOP_MINUTE &&
+      lastRun !== key
+    ) {
       lastRun = key;
       postTopDaily(client);
     }
