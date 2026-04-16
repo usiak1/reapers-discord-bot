@@ -1,8 +1,14 @@
 const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes } = require('discord.js');
-const fs = require('fs');
+const { createClient } = require('@supabase/supabase-js');
 
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = "1494222775814983810";
+
+// ===== Supabase =====
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_KEY
+);
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds]
@@ -16,25 +22,7 @@ function vypocet(pocet) {
     Math.max(pocet - 40, 0) * 150;
 }
 
-// ===== Uložení =====
-function ulozData(user, pocet, castka) {
-  let data = {};
-  if (fs.existsSync('data.json')) {
-    data = JSON.parse(fs.readFileSync('data.json'));
-  }
-
-  if (!data[user]) data[user] = [];
-
-  data[user].push({
-    pocet,
-    castka,
-    datum: new Date().toISOString()
-  });
-
-  fs.writeFileSync('data.json', JSON.stringify(data, null, 2));
-}
-
-// ===== Slash command =====
+// ===== Slash commands =====
 const commands = [
   new SlashCommandBuilder()
     .setName('odevzdat')
@@ -42,7 +30,30 @@ const commands = [
     .addIntegerOption(option =>
       option.setName('pocet')
         .setDescription('Počet sáčků (max 60)')
-        .setRequired(true))
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName('stav')
+    .setDescription('Zobrazí stav skladu'),
+
+  new SlashCommandBuilder()
+    .setName('sber')
+    .setDescription('Přidá trávu na sklad')
+    .addIntegerOption(option =>
+      option.setName('gramy')
+        .setDescription('Kolik gramů')
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName('nakup')
+    .setDescription('Odečte peníze ze skladu')
+    .addIntegerOption(option =>
+      option.setName('castka')
+        .setDescription('Kolik $')
+        .setRequired(true)
+    )
 ];
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -54,9 +65,11 @@ const rest = new REST({ version: '10' }).setToken(TOKEN);
   );
 })();
 
+// ===== INTERACTIONS =====
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
+  // ===== ODEVZDAT =====
   if (interaction.commandName === 'odevzdat') {
     const pocet = interaction.options.getInteger('pocet');
 
@@ -66,10 +79,102 @@ client.on('interactionCreate', async interaction => {
 
     const castka = vypocet(pocet);
     const user = interaction.user.username;
+    const spotreba = pocet * 5;
 
-    ulozData(user, pocet, castka);
+    // načti sklad
+    const { data: sklad, error } = await supabase
+      .from('sklad')
+      .select('*')
+      .eq('id', 1)
+      .single();
 
-    interaction.reply(`💰 Máš odevzdat: **${castka}$**`);
+    if (error) {
+      return interaction.reply("❌ Chyba při načítání skladu.");
+    }
+
+    if (sklad.trava < spotreba) {
+      return interaction.reply("❌ Není dost trávy na skladě!");
+    }
+
+    // update sklad
+    await supabase
+      .from('sklad')
+      .update({
+        trava: sklad.trava - spotreba,
+        penize: sklad.penize + castka
+      })
+      .eq('id', 1);
+
+    // uložit prodej
+    await supabase.from('prodeje').insert({
+      user,
+      pocet,
+      castka,
+      datum: new Date()
+    });
+
+    interaction.reply(`💰 Odevzdal jsi: **${castka}$**\n🌿 Spotřebováno: ${spotreba}g`);
+  }
+
+  // ===== STAV =====
+  if (interaction.commandName === 'stav') {
+    const { data: sklad, error } = await supabase
+      .from('sklad')
+      .select('*')
+      .eq('id', 1)
+      .single();
+
+    if (error) {
+      return interaction.reply("❌ Chyba při načítání skladu.");
+    }
+
+    interaction.reply(
+      `📦 Stav skladu:\n💰 Peníze: ${sklad.penize}$\n🌿 Tráva: ${sklad.trava}g`
+    );
+  }
+
+  // ===== SBER =====
+  if (interaction.commandName === 'sber') {
+    const gramy = interaction.options.getInteger('gramy');
+
+    const { data: sklad } = await supabase
+      .from('sklad')
+      .select('*')
+      .eq('id', 1)
+      .single();
+
+    await supabase
+      .from('sklad')
+      .update({
+        trava: sklad.trava + gramy
+      })
+      .eq('id', 1);
+
+    interaction.reply(`🌿 Přidáno ${gramy}g na sklad.`);
+  }
+
+  // ===== NAKUP =====
+  if (interaction.commandName === 'nakup') {
+    const castka = interaction.options.getInteger('castka');
+
+    const { data: sklad } = await supabase
+      .from('sklad')
+      .select('*')
+      .eq('id', 1)
+      .single();
+
+    if (sklad.penize < castka) {
+      return interaction.reply("❌ Není dost peněz!");
+    }
+
+    await supabase
+      .from('sklad')
+      .update({
+        penize: sklad.penize - castka
+      })
+      .eq('id', 1);
+
+    interaction.reply(`💸 Odečteno ${castka}$ ze skladu.`);
   }
 });
 
