@@ -54,34 +54,73 @@ function num(v) {
 
 // ===== COMMANDS =====
 const commands = [
-  new SlashCommandBuilder().setName('prodej').setDescription('Prodej sáčků').addIntegerOption(o=>o.setName('pocet').setRequired(true)),
-  new SlashCommandBuilder().setName('stav').setDescription('Stav skladu'),
-  new SlashCommandBuilder().setName('moje').setDescription('Moje statistiky'),
-  new SlashCommandBuilder().setName('ztraty').setDescription('Moje ztráty'),
-  new SlashCommandBuilder().setName('sber').setDescription('Přidá trávu').addIntegerOption(o=>o.setName('gramy').setRequired(true)),
-  new SlashCommandBuilder().setName('nakup').setDescription('Odečte peníze').addIntegerOption(o=>o.setName('castka').setRequired(true)),
-  new SlashCommandBuilder().setName('kalkulace').setDescription('Nákup surovin').addIntegerOption(o=>o.setName('pocet').setRequired(true))
+  new SlashCommandBuilder()
+    .setName('prodej')
+    .setDescription('Prodej sáčků')
+    .addIntegerOption(o =>
+      o.setName('pocet')
+        .setDescription('Počet sáčků')
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName('stav')
+    .setDescription('Zobrazí stav skladu'),
+
+  new SlashCommandBuilder()
+    .setName('moje')
+    .setDescription('Moje statistiky'),
+
+  new SlashCommandBuilder()
+    .setName('ztraty')
+    .setDescription('Moje ztráty'),
+
+  new SlashCommandBuilder()
+    .setName('sber')
+    .setDescription('Přidá trávu na sklad')
+    .addIntegerOption(o =>
+      o.setName('gramy')
+        .setDescription('Kolik gramů')
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName('nakup')
+    .setDescription('Odečte peníze ze skladu')
+    .addIntegerOption(o =>
+      o.setName('castka')
+        .setDescription('Kolik peněz')
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName('kalkulace')
+    .setDescription('Kalkulace nákupu surovin')
+    .addIntegerOption(o =>
+      o.setName('pocet')
+        .setDescription('Počet kytek')
+        .setRequired(true)
+    )
 ];
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
+
 (async () => {
   await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
 })();
 
-// ===== MAIN =====
+// ===== INTERACTIONS =====
 client.on('interactionCreate', async interaction => {
-
   try {
     const user_id = interaction.user.id;
     const user_name = interaction.member?.displayName || interaction.user.username;
     const logChannel = interaction.guild?.channels.cache.get(LOG_CHANNEL_ID);
 
-    // ================= SLASH =================
+    // ===== SLASH =====
     if (interaction.isChatInputCommand()) {
 
       // ===== PRODEJ =====
       if (interaction.commandName === 'prodej') {
-
         const pocet = interaction.options.getInteger('pocet');
 
         const today = new Date();
@@ -125,7 +164,7 @@ client.on('interactionCreate', async interaction => {
       // ===== STAV =====
       if (interaction.commandName === 'stav') {
         const { data: sklad } = await supabase.from('sklad').select('*').eq('id',1).single();
-        return interaction.reply({ content:`💰 ${sklad.penize}$ | 🌿 ${sklad.trava}g`, ephemeral:true });
+        return interaction.reply({ content:`💰 ${sklad.penize}$ | 🌿 ${sklad.trava}g (~${Math.floor(sklad.trava/5)} sáčků)`, ephemeral:true });
       }
 
       // ===== SBER =====
@@ -160,24 +199,23 @@ client.on('interactionCreate', async interaction => {
       if (interaction.commandName === 'moje') {
         const { data } = await supabase.from('prodeje').select('*').eq('user_id', user_id);
         const total = data.reduce((a,b)=>a+b.castka,0);
-        return interaction.reply({ content:`💰 ${total}$`, ephemeral:true });
+        return interaction.reply({ content:`💰 Celkem vyděláno: ${total}$`, ephemeral:true });
       }
 
       // ===== ZTRATY =====
       if (interaction.commandName === 'ztraty') {
         const { data } = await supabase.from('ztraty').select('*').eq('user_id', user_id);
         const total = data.reduce((a,b)=>a+b.gramy,0);
-        return interaction.reply({ content:`📉 ${total}g`, ephemeral:true });
+        return interaction.reply({ content:`📉 Celkové ztráty: ${total}g (~${Math.floor(total/5)} sáčků)`, ephemeral:true });
       }
 
       // ===== KALKULACE =====
       if (interaction.commandName === 'kalkulace') {
-
         const p = interaction.options.getInteger('pocet');
 
         const modal = new ModalBuilder()
           .setCustomId('nakup_modal')
-          .setTitle('Nákup');
+          .setTitle('Nákup surovin');
 
         const row = (id,label,val)=>
           new ActionRowBuilder().addComponents(
@@ -200,7 +238,7 @@ client.on('interactionCreate', async interaction => {
       }
     }
 
-    // ================= MODAL =================
+    // ===== MODAL =====
     if (interaction.isModalSubmit() && interaction.customId === 'nakup_modal') {
 
       const data = {
@@ -227,33 +265,33 @@ client.on('interactionCreate', async interaction => {
 
       return interaction.reply({
         content:
-`🛒 **NÁHLED**
+`🛒 **NÁHLED NÁKUPU**
 
-🌱 ${data.seminko}
-💧 ${data.voda}
-🧪 ${data.hnojivo_k}
-🪣 ${data.konev}
-🧴 ${data.hnojivo}
+🌱 Semínka: ${data.seminko}
+💧 Voda: ${data.voda}
+🧪 Kvalitní hnojivo: ${data.hnojivo_k}
+🪣 Konev: ${data.konev}
+🧴 Hnojivo: ${data.hnojivo}
 
-💰 ${total}$
-⏰ 2 min`,
+💰 Cena: ${total}$
+⏰ Platnost: 2 minuty`,
         components:[buttons],
         ephemeral:true
       });
     }
 
-    // ================= BUTTON =================
+    // ===== BUTTON =====
     if (interaction.isButton()) {
 
       const order = pendingOrders[user_id];
 
       if (!order) {
-        return interaction.reply({ content:"❌ Expirace", ephemeral:true });
+        return interaction.reply({ content:"❌ Objednávka neexistuje", ephemeral:true });
       }
 
       if (Date.now() - order.createdAt > 120000) {
         delete pendingOrders[user_id];
-        return interaction.reply({ content:"⏰ Vypršelo", ephemeral:true });
+        return interaction.reply({ content:"⏰ Objednávka vypršela", ephemeral:true });
       }
 
       if (interaction.customId === 'confirm_buy') {
@@ -263,7 +301,7 @@ client.on('interactionCreate', async interaction => {
         const { data: sklad } = await supabase.from('sklad').select('*').eq('id',1).single();
 
         if (sklad.penize < total) {
-          return interaction.reply({ content:"❌ Málo peněz", ephemeral:true });
+          return interaction.reply({ content:"❌ Nedostatek peněz", ephemeral:true });
         }
 
         await supabase.from('sklad').update({
@@ -273,30 +311,30 @@ client.on('interactionCreate', async interaction => {
         delete pendingOrders[user_id];
 
         await interaction.update({
-          content:`✅ Nákup -${total}$`,
+          content:`✅ Nákup proveden (-${total}$)`,
           components:[]
         });
 
         if (logChannel) {
           logChannel.send(
-`🛒 NÁKUP
+`🛒 **NÁKUP SUROVIN**
 
 👤 ${user_name}
 
-🌱 ${data.seminko}
-💧 ${data.voda}
-🧪 ${data.hnojivo_k}
-🪣 ${data.konev}
-🧴 ${data.hnojivo}
+🌱 Semínka: ${data.seminko}
+💧 Voda: ${data.voda}
+🧪 Kvalitní hnojivo: ${data.hnojivo_k}
+🪣 Konev: ${data.konev}
+🧴 Hnojivo: ${data.hnojivo}
 
-💰 ${total}$`
+💰 Celkem: ${total}$`
           );
         }
       }
 
       if (interaction.customId === 'edit_buy') {
         delete pendingOrders[user_id];
-        return interaction.reply({ content:"🔁 Zadej znovu /kalkulace", ephemeral:true });
+        return interaction.reply({ content:"🔁 Použij znovu /kalkulace", ephemeral:true });
       }
     }
 
@@ -304,7 +342,7 @@ client.on('interactionCreate', async interaction => {
     console.error(err);
 
     if (!interaction.replied) {
-      interaction.reply({ content:"❌ Chyba", ephemeral:true });
+      interaction.reply({ content:"❌ Chyba aplikace", ephemeral:true });
     }
   }
 });
