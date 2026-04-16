@@ -5,6 +5,9 @@ const TOKEN = process.env.TOKEN;
 const CLIENT_ID = "1494222775814983810";
 
 const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID;
+const TOP_CHANNEL_ID = process.env.TOP_CHANNEL_ID;
+const TOP_HOUR = parseInt(process.env.TOP_HOUR);
+const TOP_MINUTE = parseInt(process.env.TOP_MINUTE);
 
 // ===== Supabase =====
 const supabase = createClient(
@@ -33,6 +36,49 @@ function getWeekStart() {
   }
   now.setHours(0, 0, 0, 0);
   return now;
+}
+
+// ===== DAILY TOP =====
+async function postTopDaily(client) {
+  const channel = client.channels.cache.get(TOP_CHANNEL_ID);
+  if (!channel) return;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const { data, error } = await supabase
+    .from('prodeje')
+    .select('*');
+
+  if (error) return;
+
+  let stats = {};
+
+  data.forEach(z => {
+    const d = new Date(z.datum);
+    if (d >= today) {
+      if (!stats[z.user]) stats[z.user] = 0;
+      stats[z.user] += z.castka;
+    }
+  });
+
+  const sorted = Object.entries(stats)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+
+  if (sorted.length === 0) {
+    return channel.send("📭 Dnes zatím žádné prodeje.");
+  }
+
+  let msg = "🏆 TOP Dealers (dnes)\n\n";
+  const medals = ["🥇", "🥈", "🥉"];
+
+  sorted.forEach((u, i) => {
+    const icon = medals[i] || `${i + 1}.`;
+    msg += `${icon} ${u[0]} — ${u[1]}$\n`;
+  });
+
+  channel.send(msg);
 }
 
 // ===== Slash commands =====
@@ -70,11 +116,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('moje')
-    .setDescription('Zobrazí tvoje statistiky'),
-
-  new SlashCommandBuilder()
-    .setName('top')
-    .setDescription('TOP hráči za tento týden')
+    .setDescription('Zobrazí tvoje statistiky')
 ];
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -266,45 +308,23 @@ client.on('interactionCreate', async interaction => {
       ephemeral: true
     });
   }
+});
 
-  // ===== TOP =====
-  if (interaction.commandName === 'top') {
-    const weekStart = getWeekStart();
+// ===== TIMER =====
+let lastRun = null;
 
-    const { data, error } = await supabase
-      .from('prodeje')
-      .select('*');
+client.once('ready', () => {
+  console.log('Bot ready');
 
-    if (error) {
-      return interaction.reply("❌ Chyba při načítání dat.");
+  setInterval(() => {
+    const now = new Date();
+    const key = now.toDateString() + now.getHours() + now.getMinutes();
+
+    if (now.getHours() === TOP_HOUR && now.getMinutes() === TOP_MINUTE && lastRun !== key) {
+      lastRun = key;
+      postTopDaily(client);
     }
-
-    let stats = {};
-
-    data.forEach(z => {
-      const d = new Date(z.datum);
-
-      if (d >= weekStart) {
-        if (!stats[z.user]) stats[z.user] = 0;
-        stats[z.user] += z.castka;
-      }
-    });
-
-    const sorted = Object.entries(stats)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5);
-
-    let msg = "🏆 TOP Dealers (tento týden)\n\n";
-
-    const medals = ["🥇", "🥈", "🥉"];
-
-    sorted.forEach((u, i) => {
-      const icon = medals[i] || `${i + 1}.`;
-      msg += `${icon} ${u[0]} — ${u[1]}$\n`;
-    });
-
-    await interaction.reply(msg);
-  }
+  }, 60000);
 });
 
 client.login(TOKEN);
