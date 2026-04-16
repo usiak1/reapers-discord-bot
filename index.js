@@ -46,11 +46,7 @@ async function postTopDaily(client) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const { data, error } = await supabase
-    .from('prodeje')
-    .select('*');
-
-  if (error) return;
+  const { data } = await supabase.from('prodeje').select('*');
 
   let stats = {};
 
@@ -84,7 +80,7 @@ async function postTopDaily(client) {
 // ===== Slash commands =====
 const commands = [
   new SlashCommandBuilder()
-    .setName('odevzdat')
+    .setName('prodej')
     .setDescription('Zadej počet prodaných sáčků')
     .addIntegerOption(option =>
       option.setName('pocet')
@@ -116,7 +112,20 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('moje')
-    .setDescription('Zobrazí tvoje statistiky')
+    .setDescription('Zobrazí tvoje statistiky'),
+
+  new SlashCommandBuilder()
+    .setName('pd')
+    .setDescription('Zabavené sáčky policií')
+    .addIntegerOption(option =>
+      option.setName('pocet')
+        .setDescription('Počet sáčků')
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName('ztraty')
+    .setDescription('Zobrazí tvoje ztráty')
 ];
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -133,40 +142,57 @@ client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
   const logChannel = interaction.guild.channels.cache.get(LOG_CHANNEL_ID);
+  const user = interaction.member.displayName;
 
-  // ===== ODEVZDAT =====
-  if (interaction.commandName === 'odevzdat') {
+  // ===== PRODEJ =====
+  if (interaction.commandName === 'prodej') {
     const pocet = interaction.options.getInteger('pocet');
 
     if (pocet > 60) {
       return interaction.reply({ content: "Max je 60 sáčků.", ephemeral: true });
     }
 
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const { data: prodeje } = await supabase
+      .from('prodeje')
+      .select('*')
+      .eq('user', user);
+
+    let dnesProdano = 0;
+
+    prodeje.forEach(z => {
+      const d = new Date(z.datum);
+      if (d >= today) dnesProdano += z.pocet;
+    });
+
+    const zbyva = 60 - dnesProdano;
+
+    if (pocet > zbyva) {
+      return interaction.reply({
+        content: `❌ Dnes můžeš prodat ještě ${zbyva} sáčků.`,
+        ephemeral: true
+      });
+    }
+
     const castka = vypocet(pocet);
-    const user = interaction.user.username;
     const spotreba = pocet * 5;
 
-    const { data: sklad, error } = await supabase
+    const { data: sklad } = await supabase
       .from('sklad')
       .select('*')
       .eq('id', 1)
       .single();
 
-    if (error) {
-      return interaction.reply({ content: "❌ Chyba při načítání skladu.", ephemeral: true });
-    }
-
     if (sklad.trava < spotreba) {
-      return interaction.reply({ content: "❌ Není dost trávy na skladě!", ephemeral: true });
+      return interaction.reply({ content: "❌ Není dost trávy!", ephemeral: true });
     }
 
-    await supabase
-      .from('sklad')
-      .update({
-        trava: sklad.trava - spotreba,
-        penize: sklad.penize + castka
-      })
-      .eq('id', 1);
+    await supabase.from('sklad').update({
+      trava: sklad.trava - spotreba,
+      penize: sklad.penize + castka
+    }).eq('id', 1);
 
     await supabase.from('prodeje').insert({
       user,
@@ -176,13 +202,84 @@ client.on('interactionCreate', async interaction => {
     });
 
     await interaction.reply({
-      content: `💰 Odevzdal jsi: **${castka}$**\n🌿 Spotřebováno: ${spotreba}g`,
+      content: `💰 ${castka}$ | 📦 ${dnesProdano + pocet}/60`,
       ephemeral: true
     });
 
     if (logChannel) {
-      logChannel.send(`📥 ${user} odevzdal ${pocet} sáčků → ${castka}$ | -${spotreba}g`);
+      logChannel.send(`📥 ${user} → ${pocet} ks (${castka}$)`);
     }
+  }
+
+  // ===== PD =====
+  if (interaction.commandName === 'pd') {
+    const pocet = interaction.options.getInteger('pocet');
+    const gramy = pocet * 5;
+
+    const { data: sklad } = await supabase
+      .from('sklad')
+      .select('*')
+      .eq('id', 1)
+      .single();
+
+    if (sklad.trava < gramy) {
+      return interaction.reply({ content: "❌ Není dost trávy.", ephemeral: true });
+    }
+
+    await supabase.from('sklad').update({
+      trava: sklad.trava - gramy
+    }).eq('id', 1);
+
+    await supabase.from('ztraty').insert({
+      user,
+      pocet,
+      gramy,
+      datum: new Date()
+    });
+
+    await interaction.reply({
+      content: `🚔 ${pocet} sáčků (${gramy}g)`,
+      ephemeral: true
+    });
+
+    if (logChannel) {
+      logChannel.send(`🚔 ${user} přišel o ${pocet} ks (${gramy}g)`);
+    }
+  }
+
+  // ===== ZTRATY =====
+  if (interaction.commandName === 'ztraty') {
+    const weekStart = getWeekStart();
+
+    const { data } = await supabase
+      .from('ztraty')
+      .select('*')
+      .eq('user', user);
+
+    let week = 0;
+    let total = 0;
+
+    data.forEach(z => {
+      const d = new Date(z.datum);
+
+      total += z.gramy;
+      if (d >= weekStart) week += z.gramy;
+    });
+
+    const weekSacky = Math.floor(week / 5);
+    const totalSacky = Math.floor(total / 5);
+
+    await interaction.reply({
+      content:
+`📉 Ztráty
+
+📆 Tento týden:
+🌿 ${week}g (~${weekSacky} sáčků)
+
+📊 Celkem:
+🌿 ${total}g (~${totalSacky} sáčků)`,
+      ephemeral: true
+    });
   }
 
   // ===== STAV =====
@@ -193,8 +290,10 @@ client.on('interactionCreate', async interaction => {
       .eq('id', 1)
       .single();
 
+    const sacky = Math.floor(sklad.trava / 5);
+
     await interaction.reply({
-      content: `📦 Stav skladu:\n💰 ${sklad.penize}$\n🌿 ${sklad.trava}g`,
+      content: `💰 ${sklad.penize}$ | 🌿 ${sklad.trava}g (~${sacky} sáčků)`,
       ephemeral: true
     });
   }
@@ -209,21 +308,14 @@ client.on('interactionCreate', async interaction => {
       .eq('id', 1)
       .single();
 
-    await supabase
-      .from('sklad')
-      .update({
-        trava: sklad.trava + gramy
-      })
-      .eq('id', 1);
+    await supabase.from('sklad').update({
+      trava: sklad.trava + gramy
+    }).eq('id', 1);
 
     await interaction.reply({
-      content: `🌿 Přidáno ${gramy}g na sklad.`,
+      content: `🌿 +${gramy}g`,
       ephemeral: true
     });
-
-    if (logChannel) {
-      logChannel.send(`🌿 +${gramy}g přidáno na sklad (${interaction.user.username})`);
-    }
   }
 
   // ===== NAKUP =====
@@ -237,74 +329,15 @@ client.on('interactionCreate', async interaction => {
       .single();
 
     if (sklad.penize < castka) {
-      return interaction.reply({ content: "❌ Není dost peněz!", ephemeral: true });
+      return interaction.reply({ content: "❌ Málo peněz!", ephemeral: true });
     }
 
-    await supabase
-      .from('sklad')
-      .update({
-        penize: sklad.penize - castka
-      })
-      .eq('id', 1);
+    await supabase.from('sklad').update({
+      penize: sklad.penize - castka
+    }).eq('id', 1);
 
     await interaction.reply({
-      content: `💸 Odečteno ${castka}$ ze skladu.`,
-      ephemeral: true
-    });
-
-    if (logChannel) {
-      logChannel.send(`💸 -${castka}$ ze skladu (${interaction.user.username})`);
-    }
-  }
-
-  // ===== MOJE =====
-  if (interaction.commandName === 'moje') {
-    const user = interaction.user.username;
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const weekStart = getWeekStart();
-
-    const { data, error } = await supabase
-      .from('prodeje')
-      .select('*')
-      .eq('user', user);
-
-    if (error) {
-      return interaction.reply({ content: "❌ Chyba při načítání dat.", ephemeral: true });
-    }
-
-    let todayMoney = 0;
-    let todayPocet = 0;
-    let weekMoney = 0;
-    let weekPocet = 0;
-
-    data.forEach(z => {
-      const d = new Date(z.datum);
-
-      if (d >= today) {
-        todayMoney += z.castka;
-        todayPocet += z.pocet;
-      }
-
-      if (d >= weekStart) {
-        weekMoney += z.castka;
-        weekPocet += z.pocet;
-      }
-    });
-
-    await interaction.reply({
-      content:
-`📊 Tvoje statistiky
-
-📅 Dnes:
-💰 ${todayMoney}$
-📦 ${todayPocet} sáčků
-
-📆 Tento týden:
-💰 ${weekMoney}$
-📦 ${weekPocet} sáčků`,
+      content: `💸 -${castka}$`,
       ephemeral: true
     });
   }
