@@ -266,16 +266,16 @@ client.on('interactionCreate', async interaction => {
 
       return interaction.reply({
         content:
-`🛒 NÁHLED
+`🛒 **NÁHLED NÁKUPU**
 
-🌱 ${data.seminko}
-💧 ${data.voda}
-🧪 ${data.hnojivo_k}
-🪣 ${data.konev}
-🧴 ${data.hnojivo}
+🌱 Semínka: ${data.seminko}
+💧 Voda: ${data.voda}
+🧪 Kvalitní hnojivo: ${data.hnojivo_k}
+🪣 Konev: ${data.konev}
+🧴 Hnojivo: ${data.hnojivo}
 
-💰 ${total}$
-⏰ 2 min`,
+💰 Cena: ${total}$
+⏰ Platnost: 2 min`,
         components:[buttons],
         ephemeral:true
       });
@@ -317,10 +317,15 @@ client.on('interactionCreate', async interaction => {
         });
 
         if (logChannel) {
-          logChannel.send(
+logChannel.send(
 `🛒 ${user_name} nakoupil suroviny → ${total}$
-🌱${data.seminko} 💧${data.voda} 🧪${data.hnojivo_k} 🪣${data.konev} 🧴${data.hnojivo}`
-          );
+
+🌱 Semínka: ${data.seminko}
+💧 Voda: ${data.voda}
+🧪 Kvalitní hnojivo: ${data.hnojivo_k}
+🪣 Konev: ${data.konev}
+🧴 Hnojivo: ${data.hnojivo}`
+);
         }
       }
 
