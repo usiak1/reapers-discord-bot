@@ -1,4 +1,15 @@
-const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes } = require('discord.js');
+const {
+  Client,
+  GatewayIntentBits,
+  SlashCommandBuilder,
+  REST,
+  Routes,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  ActionRowBuilder
+} = require('discord.js');
+
 const { createClient } = require('@supabase/supabase-js');
 
 const TOKEN = process.env.TOKEN;
@@ -18,6 +29,15 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds]
 });
 
+// ===== CENY =====
+const CENY = {
+  seminko: 50,
+  voda: 40,
+  hnojivo_k: 50,
+  konev: 20,
+  hnojivo: 25
+};
+
 // ===== Výpočet =====
 function vypocet(pocet) {
   return Math.min(pocet, 20) * 180 +
@@ -26,101 +46,24 @@ function vypocet(pocet) {
     Math.max(pocet - 40, 0) * 150;
 }
 
-// ===== Týden =====
-function getWeekStart() {
-  const now = new Date();
-  const day = now.getDay() || 7;
-  if (day !== 1) now.setHours(-24 * (day - 1));
-  now.setHours(0, 0, 0, 0);
-  return now;
-}
-
-// ===== TOP =====
-async function postTopDaily(client) {
-  const channel = client.channels.cache.get(TOP_CHANNEL_ID);
-  if (!channel) return;
-
-  const now = new Date();
-  const cz = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Prague" }));
-
-  const today = new Date(cz);
-  today.setHours(0, 0, 0, 0);
-
-  const weekStart = getWeekStart();
-
-  const { data } = await supabase.from('prodeje').select('*');
-
-  let todayStats = {};
-  let weekStats = {};
-
-  data.forEach(z => {
-    const d = new Date(z.datum);
-
-    if (d >= today) {
-      if (!todayStats[z.user_id]) {
-        todayStats[z.user_id] = { name: z.user_name, money: 0 };
-      }
-      todayStats[z.user_id].money += z.castka;
-      todayStats[z.user_id].name = z.user_name;
-    }
-
-    if (d >= weekStart) {
-      if (!weekStats[z.user_id]) {
-        weekStats[z.user_id] = { name: z.user_name, money: 0 };
-      }
-      weekStats[z.user_id].money += z.castka;
-      weekStats[z.user_id].name = z.user_name;
-    }
-  });
-
-  const topToday = Object.values(todayStats).sort((a,b)=>b.money-a.money).slice(0,5);
-  const topWeek = Object.values(weekStats).sort((a,b)=>b.money-a.money).slice(0,5);
-
-  let msg = "🏆 TOP Dealers\n\n";
-
-  msg += "📅 Dnes:\n";
-  topToday.forEach((u,i)=> msg += `${i+1}. ${u.name} — ${u.money}$\n`);
-
-  msg += "\n📆 Týden:\n";
-  topWeek.forEach((u,i)=> msg += `${i+1}. ${u.name} — ${u.money}$\n`);
-
-  channel.send(msg);
-}
-
 // ===== Commands =====
 const commands = [
   new SlashCommandBuilder()
     .setName('prodej')
     .setDescription('Prodej sáčků')
     .addIntegerOption(option =>
-      option.setName('pocet').setDescription('Počet sáčků').setRequired(true)
+      option.setName('pocet').setDescription('Počet').setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName('kalkulace')
+    .setDescription('Kalkulace nákupu')
+    .addIntegerOption(option =>
+      option.setName('pocet').setDescription('Počet kytek').setRequired(true)
     ),
 
   new SlashCommandBuilder().setName('stav').setDescription('Stav skladu'),
-
-  new SlashCommandBuilder()
-    .setName('sber')
-    .setDescription('Přidá trávu')
-    .addIntegerOption(option =>
-      option.setName('gramy').setDescription('Gramy').setRequired(true)
-    ),
-
-  new SlashCommandBuilder()
-    .setName('nakup')
-    .setDescription('Odečte peníze')
-    .addIntegerOption(option =>
-      option.setName('castka').setDescription('Částka').setRequired(true)
-    ),
-
   new SlashCommandBuilder().setName('moje').setDescription('Moje statistiky'),
-
-  new SlashCommandBuilder()
-    .setName('pd')
-    .setDescription('Zabavené sáčky')
-    .addIntegerOption(option =>
-      option.setName('pocet').setDescription('Počet sáčků').setRequired(true)
-    ),
-
   new SlashCommandBuilder().setName('ztraty').setDescription('Moje ztráty')
 ];
 
@@ -132,14 +75,11 @@ const rest = new REST({ version: '10' }).setToken(TOKEN);
 
 // ===== INTERACTIONS =====
 client.on('interactionCreate', async interaction => {
-  if (!interaction.isChatInputCommand()) return;
+  if (interaction.isChatInputCommand()) {
 
-  const user_id = interaction.user.id;
-  const user_name = interaction.member.displayName;
-
-  const logChannel = interaction.guild.channels.cache.get(LOG_CHANNEL_ID);
-
-  try {
+    const user_id = interaction.user.id;
+    const user_name = interaction.member.displayName;
+    const logChannel = interaction.guild.channels.cache.get(LOG_CHANNEL_ID);
 
     // ===== PRODEJ =====
     if (interaction.commandName === 'prodej') {
@@ -177,11 +117,7 @@ client.on('interactionCreate', async interaction => {
       }).eq('id',1);
 
       await supabase.from('prodeje').insert({
-        user_id,
-        user_name,
-        pocet,
-        castka,
-        datum: new Date()
+        user_id, user_name, pocet, castka, datum: new Date()
       });
 
       await interaction.reply({
@@ -192,174 +128,83 @@ client.on('interactionCreate', async interaction => {
       if (logChannel) logChannel.send(`📥 ${user_name} ${pocet} ks (${castka}$)`);
     }
 
-    // ===== SBER =====
-    if (interaction.commandName === 'sber') {
-      const gramy = interaction.options.getInteger('gramy');
-
-      const { data: sklad } = await supabase.from('sklad').select('*').eq('id',1).single();
-
-      await supabase.from('sklad').update({
-        trava: sklad.trava + gramy
-      }).eq('id',1);
-
-      await interaction.reply({
-        content: `🌿 +${gramy}g`,
-        ephemeral: true
-      });
-
-      if (logChannel) logChannel.send(`🌿 ${user_name} přidal ${gramy}g`);
-    }
-
-    // ===== NAKUP =====
-    if (interaction.commandName === 'nakup') {
-      const castka = interaction.options.getInteger('castka');
-
-      const { data: sklad } = await supabase.from('sklad').select('*').eq('id',1).single();
-
-      if (sklad.penize < castka) {
-        return interaction.reply({ content: "❌ Málo peněz", ephemeral: true });
-      }
-
-      await supabase.from('sklad').update({
-        penize: sklad.penize - castka
-      }).eq('id',1);
-
-      await interaction.reply({
-        content: `💸 -${castka}$`,
-        ephemeral: true
-      });
-
-      if (logChannel) logChannel.send(`💸 ${user_name} odebral ${castka}$`);
-    }
-
-    // ===== PD =====
-    if (interaction.commandName === 'pd') {
+    // ===== KALKULACE → MODAL =====
+    if (interaction.commandName === 'kalkulace') {
       const pocet = interaction.options.getInteger('pocet');
-      const gramy = pocet * 5;
 
-      const { data: sklad } = await supabase.from('sklad').select('*').eq('id',1).single();
+      const modal = new ModalBuilder()
+        .setCustomId('nakup_modal')
+        .setTitle(`Nákup (${pocet} kytek)`);
 
-      if (sklad.trava < gramy) {
-        return interaction.reply({ content: "❌ Málo trávy", ephemeral: true });
-      }
+      const createInput = (id, label, value) =>
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId(id)
+            .setLabel(label)
+            .setStyle(TextInputStyle.Short)
+            .setValue(String(value))
+        );
 
-      await supabase.from('sklad').update({
-        trava: sklad.trava - gramy
-      }).eq('id',1);
+      modal.addComponents(
+        createInput('seminko', 'Semínka', pocet),
+        createInput('voda', 'Voda', pocet * 4),
+        createInput('hnojivo_k', 'Kvalitní hnojivo', pocet * 4),
+        createInput('konev', 'Konev', pocet),
+        createInput('hnojivo', 'Hnojivo', pocet)
+      );
 
-      await supabase.from('ztraty').insert({
-        user_id,
-        user_name,
-        pocet,
-        gramy,
-        datum: new Date()
-      });
-
-      await interaction.reply({
-        content: `🚔 ${pocet} ks (${gramy}g)`,
-        ephemeral: true
-      });
-
-      if (logChannel) logChannel.send(`🚔 ${user_name} přišel o ${pocet} ks (${gramy}g)`);
+      await interaction.showModal(modal);
     }
+  }
 
-    // ===== ZTRATY =====
-    if (interaction.commandName === 'ztraty') {
-      const weekStart = getWeekStart();
+  // ===== MODAL SUBMIT =====
+  if (interaction.isModalSubmit()) {
 
-      const { data } = await supabase.from('ztraty').select('*').eq('user_id', user_id);
+    const user_name = interaction.member.displayName;
+    const logChannel = interaction.guild.channels.cache.get(LOG_CHANNEL_ID);
 
-      let week = 0, total = 0;
+    const seminko = parseInt(interaction.fields.getTextInputValue('seminko'));
+    const voda = parseInt(interaction.fields.getTextInputValue('voda'));
+    const hnojivo_k = parseInt(interaction.fields.getTextInputValue('hnojivo_k'));
+    const konev = parseInt(interaction.fields.getTextInputValue('konev'));
+    const hnojivo = parseInt(interaction.fields.getTextInputValue('hnojivo'));
 
-      data.forEach(z => {
-        total += z.gramy;
-        if (new Date(z.datum) >= weekStart) week += z.gramy;
-      });
+    const total =
+      seminko * CENY.seminko +
+      voda * CENY.voda +
+      hnojivo_k * CENY.hnojivo_k +
+      konev * CENY.konev +
+      hnojivo * CENY.hnojivo;
 
-      await interaction.reply({
-        content: `📉 Týden: ${week}g (~${Math.floor(week/5)})\n📊 Celkem: ${total}g (~${Math.floor(total/5)})`,
-        ephemeral: true
-      });
-    }
+    const { data: sklad } = await supabase
+      .from('sklad')
+      .select('*')
+      .eq('id', 1)
+      .single();
 
-    // ===== STAV =====
-    if (interaction.commandName === 'stav') {
-      const { data: sklad } = await supabase.from('sklad').select('*').eq('id',1).single();
-
-      await interaction.reply({
-        content: `💰 ${sklad.penize}$ | 🌿 ${sklad.trava}g (~${Math.floor(sklad.trava/5)})`,
-        ephemeral: true
-      });
-    }
-
-    // ===== MOJE =====
-    if (interaction.commandName === 'moje') {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-
-      const weekStart = getWeekStart();
-
-      const { data } = await supabase.from('prodeje').select('*').eq('user_id', user_id);
-
-      let todayMoney = 0;
-      let todayPocet = 0;
-      let weekMoney = 0;
-      let weekPocet = 0;
-
-      data.forEach(z => {
-        const d = new Date(z.datum);
-
-        if (d >= today) {
-          todayMoney += z.castka;
-          todayPocet += z.pocet;
-        }
-
-        if (d >= weekStart) {
-          weekMoney += z.castka;
-          weekPocet += z.pocet;
-        }
-      });
-
-      await interaction.reply({
-        content:
-`📊 Moje statistiky
-
-📅 Dnes:
-💰 ${todayMoney}$
-📦 ${todayPocet} ks
-
-📆 Tento týden:
-💰 ${weekMoney}$
-📦 ${weekPocet} ks`,
+    if (sklad.penize < total) {
+      return interaction.reply({
+        content: `❌ Nedostatek peněz (${total}$)`,
         ephemeral: true
       });
     }
 
-  } catch (err) {
-    console.error(err);
-    if (!interaction.replied) {
-      interaction.reply({ content: "❌ Chyba aplikace", ephemeral: true });
+    await supabase.from('sklad').update({
+      penize: sklad.penize - total
+    }).eq('id', 1);
+
+    await interaction.reply({
+      content: `🛒 Nákup proveden\n💰 -${total}$`,
+      ephemeral: true
+    });
+
+    if (logChannel) {
+      logChannel.send(
+        `🛒 ${user_name} nákup\n🌱 ${seminko} | 💧 ${voda} | 🧪 ${hnojivo_k} | 🪣 ${konev} | 🧴 ${hnojivo}\n💰 ${total}$`
+      );
     }
   }
 });
 
-// ===== TIMER =====
-let lastRun = null;
-
-client.once('ready', () => {
-  console.log("Bot ready");
-
-  setInterval(() => {
-    const now = new Date();
-    const cz = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Prague" }));
-
-    const key = cz.toDateString() + cz.getHours() + cz.getMinutes();
-
-    if (cz.getHours() === TOP_HOUR && cz.getMinutes() === TOP_MINUTE && lastRun !== key) {
-      lastRun = key;
-      postTopDaily(client);
-    }
-  }, 60000);
-});
-
+// ===== START =====
 client.login(TOKEN);
