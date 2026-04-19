@@ -52,21 +52,15 @@ function num(v) {
   return isNaN(n) ? 0 : n;
 }
 
-// ===== TIME HELPERS (CZ TIME) =====
-function getTodayCZ() {
-  const now = new Date();
-
-  const cz = new Date(
-    now.toLocaleString("en-US", { timeZone: "Europe/Prague" })
-  );
-
-  cz.setHours(0, 0, 0, 0);
-
-  return new Date(cz.toISOString());
+// ===== TIME HELPERS (UTC - STABLE) =====
+function getTodayUTC() {
+  const d = new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  return d;
 }
 
 async function getTodayProdeje(user_id) {
-  const today = getTodayCZ();
+  const today = getTodayUTC();
 
   const { data } = await supabase
     .from('prodeje')
@@ -78,7 +72,7 @@ async function getTodayProdeje(user_id) {
 }
 
 async function getTodayZtraty(user_id) {
-  const today = getTodayCZ();
+  const today = getTodayUTC();
 
   const { data } = await supabase
     .from('ztraty')
@@ -172,7 +166,10 @@ client.on('interactionCreate', async interaction => {
           user_id, user_name, pocet, castka, datum:new Date()
         });
 
-        await interaction.reply({ content:`💰 ${castka}$ | ${dnes+pocet}/60`, ephemeral:true });
+        await interaction.reply({
+          content:`💰 ${castka}$ | ${dnes+pocet}/60`,
+          ephemeral:true
+        });
 
         if (logChannel) {
           logChannel.send(`📥 ${user_name} prodal ${pocet} sáčků → ${castka}$ | -${spotreba}g`);
