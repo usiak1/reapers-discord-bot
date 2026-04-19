@@ -52,6 +52,43 @@ function num(v) {
   return isNaN(n) ? 0 : n;
 }
 
+// ===== TIME HELPERS (CZ TIME) =====
+function getTodayCZ() {
+  const now = new Date();
+
+  const cz = new Date(
+    now.toLocaleString("en-US", { timeZone: "Europe/Prague" })
+  );
+
+  cz.setHours(0, 0, 0, 0);
+
+  return new Date(cz.toISOString());
+}
+
+async function getTodayProdeje(user_id) {
+  const today = getTodayCZ();
+
+  const { data } = await supabase
+    .from('prodeje')
+    .select('pocet')
+    .eq('user_id', user_id)
+    .gte('datum', today.toISOString());
+
+  return data.reduce((sum, z) => sum + z.pocet, 0);
+}
+
+async function getTodayZtraty(user_id) {
+  const today = getTodayCZ();
+
+  const { data } = await supabase
+    .from('ztraty')
+    .select('gramy')
+    .eq('user_id', user_id)
+    .gte('datum', today.toISOString());
+
+  return data.reduce((sum, z) => sum + z.gramy, 0);
+}
+
 // ===== COMMANDS =====
 const commands = [
   new SlashCommandBuilder()
@@ -111,15 +148,7 @@ client.on('interactionCreate', async interaction => {
       if (interaction.commandName === 'prodej') {
         const pocet = interaction.options.getInteger('pocet');
 
-        const today = new Date();
-        today.setHours(0,0,0,0);
-
-        const { data } = await supabase.from('prodeje').select('*').eq('user_id', user_id);
-
-        let dnes = 0;
-        data.forEach(z=>{
-          if(new Date(z.datum)>=today) dnes+=z.pocet;
-        });
+        const dnes = await getTodayProdeje(user_id);
 
         if (pocet > (60 - dnes)) {
           return interaction.reply({ content:`❌ Zbývá ${60-dnes}`, ephemeral:true });
@@ -183,16 +212,26 @@ client.on('interactionCreate', async interaction => {
 
       // ===== MOJE =====
       if (interaction.commandName === 'moje') {
-        const { data } = await supabase.from('prodeje').select('*').eq('user_id', user_id);
+        const { data } = await supabase.from('prodeje').select('castka').eq('user_id', user_id);
         const total = data.reduce((a,b)=>a+b.castka,0);
-        return interaction.reply({ content:`💰 ${total}$`, ephemeral:true });
+        const dnes = await getTodayProdeje(user_id);
+
+        return interaction.reply({
+          content:`💰 Celkem: ${total}$\n📅 Dnes: ${dnes} sáčků`,
+          ephemeral:true
+        });
       }
 
       // ===== ZTRATY =====
       if (interaction.commandName === 'ztraty') {
-        const { data } = await supabase.from('ztraty').select('*').eq('user_id', user_id);
+        const { data } = await supabase.from('ztraty').select('gramy').eq('user_id', user_id);
         const total = data.reduce((a,b)=>a+b.gramy,0);
-        return interaction.reply({ content:`📉 ${total}g (~${Math.floor(total/5)} sáčků)`, ephemeral:true });
+        const dnes = await getTodayZtraty(user_id);
+
+        return interaction.reply({
+          content:`📉 Celkem: ${total}g (~${Math.floor(total/5)} sáčků)\n📅 Dnes: ${dnes}g (~${Math.floor(dnes/5)} sáčků)`,
+          ephemeral:true
+        });
       }
 
       // ===== SBER =====
