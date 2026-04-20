@@ -198,6 +198,11 @@ client.on('interactionCreate', async interaction => {
       // ===== PRODEJ =====
       if (interaction.commandName === 'prodej') {
         const pocet = interaction.options.getInteger('pocet');
+        if (pocet <= 0) {
+          const msg = "❌ Musíš zadat kladné číslo";
+          if (adminLogChannel) adminLogChannel.send(`↩️ RESPONSE\n👤 ${user_name}\n💬 ${msg}`);
+          return interaction.editReply(msg);
+        }
 
         const dnes = await getTodayProdeje(user_id);
 
@@ -244,6 +249,11 @@ client.on('interactionCreate', async interaction => {
       // ===== PD =====
       if (interaction.commandName === 'pd') {
         const pocet = interaction.options.getInteger('pocet');
+        if (pocet <= 0) {
+          const msg = "❌ Musíš zadat kladné číslo";
+          if (adminLogChannel) adminLogChannel.send(`↩️ RESPONSE\n👤 ${user_name}\n💬 ${msg}`);
+          return interaction.editReply({ content: msg, ephemeral: true });
+        }
         const gramy = pocet * 5;
 
         await supabase.from('ztraty').insert({
@@ -342,6 +352,11 @@ client.on('interactionCreate', async interaction => {
       // ===== NAKUP =====
       if (interaction.commandName === 'nakup') {
         const c = interaction.options.getInteger('castka');
+        if (c <= 0) {
+          const msg = "❌ Musíš zadat kladné číslo";
+          if (adminLogChannel) adminLogChannel.send(`↩️ RESPONSE\n👤 ${user_name}\n💬 ${msg}`);
+          return interaction.editReply({ content: msg, ephemeral:true });
+        }
         const { data: sklad } = await supabase.from('sklad').select('*').eq('id',1).single();
 
         if (sklad.penize < c) {
@@ -516,8 +531,10 @@ client.on('interactionCreate', async interaction => {
       }
     }
 
-    if (!interaction.replied) {
-      interaction.reply({ content:"❌ Chyba aplikace", ephemeral:true });
+    if (interaction.deferred || interaction.replied) {
+      await interaction.followUp({ content:"❌ Chyba aplikace", ephemeral:true });
+    } else {
+      await interaction.reply({ content:"❌ Chyba aplikace", ephemeral:true });
     }
   }
 });
