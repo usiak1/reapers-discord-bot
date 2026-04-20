@@ -137,9 +137,9 @@ const commands = [
     .setDescription('Zabavené sáčky (policie)')
     .addIntegerOption(o => o.setName('pocet').setDescription('Počet zabavených sáčků').setRequired(true)),
 
-  new SlashCommandBuilder()
-    .setName('stav')
-    .setDescription('Zobrazí stav skladu'),
+// new SlashCommandBuilder()
+//   .setName('stav')
+//   .setDescription('Zobrazí stav skladu'),
 
   new SlashCommandBuilder()
     .setName('moje')
