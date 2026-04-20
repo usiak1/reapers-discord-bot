@@ -477,13 +477,14 @@ client.on('interactionCreate', async interaction => {
       }
 
       if (interaction.customId === 'confirm_buy') {
+        await interaction.deferUpdate();
 
         const { data, total } = order;
 
         const { data: sklad } = await supabase.from('sklad').select('*').eq('id',1).single();
 
         if (sklad.penize < total) {
-          return interaction.reply({ content:"❌ Málo peněz", ephemeral:true });
+          return interaction.editReply({ content:"❌ Málo peněz", components:[] });
         }
 
         await supabase.from('sklad').update({
@@ -493,7 +494,7 @@ client.on('interactionCreate', async interaction => {
 
         delete pendingOrders[interaction.user.id];
 
-        await interaction.update({
+        await interaction.editReply({
           content:`✅ Nákup proveden (-${total}$)`,
           components:[]
         });
