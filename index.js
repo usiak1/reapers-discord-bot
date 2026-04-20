@@ -53,7 +53,7 @@ function num(v) {
   return isNaN(n) ? 0 : n;
 }
 
-// ===== TIME (UTC - stabilní) =====
+// ===== TIME =====
 function getTodayUTC() {
   const d = new Date();
   d.setUTCHours(0, 0, 0, 0);
@@ -84,7 +84,7 @@ async function getTodayZtraty(user_id) {
   return (data || []).reduce((sum, z) => sum + z.gramy, 0);
 }
 
-// ===== ADMIN LOG FORMAT =====
+// ===== ADMIN FORMAT =====
 function formatCommand(interaction) {
   const name = interaction.commandName;
 
@@ -97,42 +97,24 @@ function formatCommand(interaction) {
 
 // ===== COMMANDS =====
 const commands = [
-  new SlashCommandBuilder()
-    .setName('prodej')
-    .setDescription('Prodej sáčků')
-    .addIntegerOption(o => o.setName('pocet').setDescription('Počet sáčků').setRequired(true)),
+  new SlashCommandBuilder().setName('prodej').setDescription('Prodej sáčků')
+    .addIntegerOption(o => o.setName('pocet').setDescription('Počet').setRequired(true)),
 
-  new SlashCommandBuilder()
-    .setName('pd')
-    .setDescription('Zabavené sáčky (policie)')
-    .addIntegerOption(o => o.setName('pocet').setDescription('Počet zabavených sáčků').setRequired(true)),
+  new SlashCommandBuilder().setName('pd').setDescription('Zabavené sáčky')
+    .addIntegerOption(o => o.setName('pocet').setDescription('Počet').setRequired(true)),
 
-  new SlashCommandBuilder()
-    .setName('stav')
-    .setDescription('Zobrazí stav skladu'),
+  new SlashCommandBuilder().setName('stav').setDescription('Stav skladu'),
+  new SlashCommandBuilder().setName('moje').setDescription('Statistiky'),
+  new SlashCommandBuilder().setName('ztraty').setDescription('Ztráty'),
 
-  new SlashCommandBuilder()
-    .setName('moje')
-    .setDescription('Moje statistiky'),
+  new SlashCommandBuilder().setName('sber').setDescription('Sběr')
+    .addIntegerOption(o => o.setName('gramy').setRequired(true)),
 
-  new SlashCommandBuilder()
-    .setName('ztraty')
-    .setDescription('Moje ztráty'),
+  new SlashCommandBuilder().setName('nakup').setDescription('Nákup')
+    .addIntegerOption(o => o.setName('castka').setRequired(true)),
 
-  new SlashCommandBuilder()
-    .setName('sber')
-    .setDescription('Přidá trávu na sklad')
-    .addIntegerOption(o => o.setName('gramy').setDescription('Kolik gramů').setRequired(true)),
-
-  new SlashCommandBuilder()
-    .setName('nakup')
-    .setDescription('Odečte peníze ze skladu')
-    .addIntegerOption(o => o.setName('castka').setDescription('Kolik peněz').setRequired(true)),
-
-  new SlashCommandBuilder()
-    .setName('kalkulace')
-    .setDescription('Kalkulace nákupu surovin')
-    .addIntegerOption(o => o.setName('pocet').setDescription('Počet kytek').setRequired(true))
+  new SlashCommandBuilder().setName('kalkulace').setDescription('Kalkulace')
+    .addIntegerOption(o => o.setName('pocet').setRequired(true))
 ];
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -152,28 +134,21 @@ client.on('interactionCreate', async interaction => {
 
     if (interaction.isChatInputCommand()) {
 
-      // ===== ADMIN LOG INPUT =====
+      await interaction.deferReply({ ephemeral: true });
+
       const commandText = formatCommand(interaction);
 
       if (adminLogChannel) {
-        adminLogChannel.send(
-`🧾 COMMAND
-👤 ${user_name}
-🆔 ${user_id}
-💬 ${commandText}`
-        );
+        adminLogChannel.send(`🧾 COMMAND\n👤 ${user_name}\n💬 ${commandText}`);
       }
 
       // ===== PRODEJ =====
       if (interaction.commandName === 'prodej') {
         const pocet = interaction.options.getInteger('pocet');
-
         const dnes = await getTodayProdeje(user_id);
 
         if (pocet > (60 - dnes)) {
-          const msg = `❌ Zbývá ${60-dnes}`;
-          if (adminLogChannel) adminLogChannel.send(`↩️ RESPONSE\n👤 ${user_name}\n💬 ${msg}`);
-          return interaction.reply({ content: msg, ephemeral:true });
+          return interaction.editReply(`❌ Zbývá ${60-dnes}`);
         }
 
         const castka = vypocet(dnes+pocet) - vypocet(dnes);
@@ -182,9 +157,7 @@ client.on('interactionCreate', async interaction => {
         const { data: sklad } = await supabase.from('sklad').select('*').eq('id',1).single();
 
         if (sklad.trava < spotreba) {
-          const msg = "❌ Málo trávy";
-          if (adminLogChannel) adminLogChannel.send(`↩️ RESPONSE\n👤 ${user_name}\n💬 ${msg}`);
-          return interaction.reply({ content: msg, ephemeral:true });
+          return interaction.editReply("❌ Málo trávy");
         }
 
         await supabase.from('sklad').update({
@@ -202,89 +175,18 @@ client.on('interactionCreate', async interaction => {
           adminLogChannel.send(`↩️ RESPONSE\n👤 ${user_name}\n💬 ${msg}`);
         }
 
-        await interaction.reply({ content: msg, ephemeral:true });
+        await interaction.editReply(msg);
 
         if (logChannel) {
-          logChannel.send(`📥 ${user_name} prodal ${pocet} sáčků → ${castka}$ | -${spotreba}g`);
+          logChannel.send(`📥 ${user_name} prodal ${pocet} → ${castka}$`);
         }
-      }
-
-      // ===== PD =====
-      if (interaction.commandName === 'pd') {
-        const pocet = interaction.options.getInteger('pocet');
-        const gramy = pocet * 5;
-
-        await supabase.from('ztraty').insert({
-          user_id,
-          user_name,
-          gramy,
-          datum: new Date()
-        });
-
-        const msg = `🚔 Zabaveno: ${pocet} sáčků (-${gramy}g)`;
-
-        if (adminLogChannel) {
-          adminLogChannel.send(`↩️ RESPONSE\n👤 ${user_name}\n💬 ${msg}`);
-        }
-
-        await interaction.reply({
-          content: msg,
-          ephemeral: true
-        });
-
-        if (logChannel) {
-          logChannel.send(`🚔 ${user_name} byl chycen → -${pocet} sáčků (-${gramy}g)`);
-        }
-      }
-
-      // ===== STAV =====
-      if (interaction.commandName === 'stav') {
-        const { data: sklad } = await supabase.from('sklad').select('*').eq('id',1).single();
-        const msg = `💰 ${sklad.penize}$ | 🌿 ${sklad.trava}g (~${Math.floor(sklad.trava/5)} sáčků)`;
-
-        if (adminLogChannel) adminLogChannel.send(`↩️ RESPONSE\n👤 ${user_name}\n💬 ${msg}`);
-
-        return interaction.reply({
-          content: msg,
-          ephemeral:true
-        });
-      }
-
-      // ===== MOJE =====
-      if (interaction.commandName === 'moje') {
-        const { data } = await supabase.from('prodeje').select('castka').eq('user_id', user_id);
-        const total = (data || []).reduce((a,b)=>a+b.castka,0);
-        const dnes = await getTodayProdeje(user_id);
-
-        const msg = `💰 Celkem: ${total}$\n📅 Dnes: ${dnes} sáčků`;
-
-        if (adminLogChannel) adminLogChannel.send(`↩️ RESPONSE\n👤 ${user_name}\n💬 ${msg}`);
-
-        return interaction.reply({ content: msg, ephemeral:true });
-      }
-
-      // ===== ZTRATY =====
-      if (interaction.commandName === 'ztraty') {
-        const { data } = await supabase.from('ztraty').select('gramy').eq('user_id', user_id);
-        const total = (data || []).reduce((a,b)=>a+b.gramy,0);
-        const dnes = await getTodayZtraty(user_id);
-
-        const msg = `📉 Celkem: ${total}g (~${Math.floor(total/5)} sáčků)\n📅 Dnes: ${dnes}g (~${Math.floor(dnes/5)} sáčků)`;
-
-        if (adminLogChannel) adminLogChannel.send(`↩️ RESPONSE\n👤 ${user_name}\n💬 ${msg}`);
-
-        return interaction.reply({ content: msg, ephemeral:true });
       }
 
       // ===== SBER =====
       if (interaction.commandName === 'sber') {
         const g = interaction.options.getInteger('gramy');
 
-        if (g <= 0) {
-          const msg = "❌ Musíš zadat kladné číslo";
-          if (adminLogChannel) adminLogChannel.send(`↩️ RESPONSE\n👤 ${user_name}\n💬 ${msg}`);
-          return interaction.reply({ content: msg, ephemeral:true });
-        }
+        if (g <= 0) return interaction.editReply("❌ Neplatné číslo");
 
         const { data: sklad } = await supabase.from('sklad').select('*').eq('id',1).single();
 
@@ -292,197 +194,36 @@ client.on('interactionCreate', async interaction => {
           trava: sklad.trava + g
         }).eq('id',1);
 
-        const msg = `🌿 +${g}g`;
-
-        if (adminLogChannel) {
-          adminLogChannel.send(`↩️ RESPONSE\n👤 ${user_name}\n💬 ${msg}`);
-        }
-
-        await interaction.reply({ content: msg, ephemeral:true });
-
-        if (logChannel) {
-          logChannel.send(`🌿 ${user_name} nasbíral +${g}g`);
-        }
+        await interaction.editReply(`🌿 +${g}g`);
       }
 
-      // ===== NAKUP =====
-      if (interaction.commandName === 'nakup') {
-        const c = interaction.options.getInteger('castka');
+      // ===== STAV =====
+      if (interaction.commandName === 'stav') {
         const { data: sklad } = await supabase.from('sklad').select('*').eq('id',1).single();
-
-        if (sklad.penize < c) {
-          const msg = "❌ Málo peněz";
-          if (adminLogChannel) adminLogChannel.send(`↩️ RESPONSE\n👤 ${user_name}\n💬 ${msg}`);
-          return interaction.reply({ content: msg, ephemeral:true });
-        }
-
-        await supabase.from('sklad').update({
-          penize: sklad.penize - c
-        }).eq('id',1);
-
-        const msg = `💸 -${c}$`;
-
-        if (adminLogChannel) adminLogChannel.send(`↩️ RESPONSE\n👤 ${user_name}\n💬 ${msg}`);
-
-        await interaction.reply({ content: msg, ephemeral:true });
-
-        if (logChannel) {
-          logChannel.send(`💸 ${user_name} utratil -${c}$`);
-        }
+        return interaction.editReply(`💰 ${sklad.penize}$ | 🌿 ${sklad.trava}g`);
       }
 
-      // ===== KALKULACE =====
-      if (interaction.commandName === 'kalkulace') {
-
-        delete pendingOrders[user_id];
-
-        const p = interaction.options.getInteger('pocet');
-
-        const modal = new ModalBuilder()
-          .setCustomId(`nakup_modal_${user_id}_${Date.now()}`)
-          .setTitle('Nákup surovin');
-
-        const row = (id,label,val)=>
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId(id)
-              .setLabel(label)
-              .setStyle(TextInputStyle.Short)
-              .setValue(String(val))
-          );
-
-        modal.addComponents(
-          row('seminko','Semínka',p),
-          row('voda','Voda',p*4),
-          row('hnojivo_k','Kvalitní hnojivo',p*4),
-          row('konev','Konev',p),
-          row('hnojivo','Hnojivo',p)
-        );
-
-        return interaction.showModal(modal);
-      }
-    }
-
-    // ===== MODAL =====
-    if (interaction.isModalSubmit() && interaction.customId.startsWith('nakup_modal')) {
-
-      const data = {
-        seminko: num(interaction.fields.getTextInputValue('seminko')),
-        voda: num(interaction.fields.getTextInputValue('voda')),
-        hnojivo_k: num(interaction.fields.getTextInputValue('hnojivo_k')),
-        konev: num(interaction.fields.getTextInputValue('konev')),
-        hnojivo: num(interaction.fields.getTextInputValue('hnojivo'))
-      };
-
-      const total =
-        data.seminko*CENY.seminko +
-        data.voda*CENY.voda +
-        data.hnojivo_k*CENY.hnojivo_k +
-        data.konev*CENY.konev +
-        data.hnojivo*CENY.hnojivo;
-
-      pendingOrders[user_id] = { data, total, createdAt: Date.now() };
-
-      const buttons = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('confirm_buy').setLabel('✅ Potvrdit').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId('edit_buy').setLabel('✏️ Upravit').setStyle(ButtonStyle.Secondary)
-      );
-
-      await interaction.reply({
-        content:
-`🛒 NÁHLED NÁKUPU
-
-🌱 Semínka: ${data.seminko}
-💧 Voda: ${data.voda}
-🧪 Kvalitní hnojivo: ${data.hnojivo_k}
-🪣 Konev: ${data.konev}
-🧴 Hnojivo: ${data.hnojivo}
-
-💰 Cena: ${total}$
-⏰ Platnost: 2 min`,
-        components:[buttons],
-        ephemeral:true
-      });
-
-      // admin log response
-      const adminLogChannel = await client.channels.fetch(LOG_CHANNEL_ADMIN).catch(() => null);
-      if (adminLogChannel) {
-        adminLogChannel.send(`↩️ RESPONSE\n👤 ${interaction.user.username}\n💬 NÁHLED ${total}$`);
-      }
-    }
-
-    // ===== BUTTON =====
-    if (interaction.isButton()) {
-
-      const order = pendingOrders[interaction.user.id];
-
-      if (!order) {
-        return interaction.reply({ content:"❌ Expirace", ephemeral:true });
+      // ===== MOJE =====
+      if (interaction.commandName === 'moje') {
+        const { data } = await supabase.from('prodeje').select('castka').eq('user_id', user_id);
+        const total = (data || []).reduce((a,b)=>a+b.castka,0);
+        return interaction.editReply(`💰 ${total}$`);
       }
 
-      if (Date.now() - order.createdAt > 120000) {
-        delete pendingOrders[interaction.user.id];
-        return interaction.reply({ content:"⏰ Vypršelo", ephemeral:true });
+      // ===== ZTRATY =====
+      if (interaction.commandName === 'ztraty') {
+        const { data } = await supabase.from('ztraty').select('gramy').eq('user_id', user_id);
+        const total = (data || []).reduce((a,b)=>a+b.gramy,0);
+        return interaction.editReply(`📉 ${total}g`);
       }
 
-      if (interaction.customId === 'confirm_buy') {
-
-        const { data, total } = order;
-
-        const { data: sklad } = await supabase.from('sklad').select('*').eq('id',1).single();
-
-        if (sklad.penize < total) {
-          return interaction.reply({ content:"❌ Málo peněz", ephemeral:true });
-        }
-
-        await supabase.from('sklad').update({
-          penize: sklad.penize - total
-        }).eq('id',1);
-
-        delete pendingOrders[interaction.user.id];
-
-        await interaction.update({
-          content:`✅ Nákup proveden (-${total}$)`,
-          components:[]
-        });
-
-        if (LOG_CHANNEL_ADMIN) {
-          const ch = await client.channels.fetch(LOG_CHANNEL_ADMIN).catch(()=>null);
-          if (ch) ch.send(`↩️ RESPONSE\n👤 ${interaction.user.username}\n💬 Nákup -${total}$`);
-        }
-
-        const logChannel = await client.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
-        if (logChannel) {
-          logChannel.send(
-`🛒 ${interaction.user.username} nakoupil suroviny → ${total}$
-
-🌱 Semínka: ${data.seminko}
-💧 Voda: ${data.voda}
-🧪 Kvalitní hnojivo: ${data.hnojivo_k}
-🪣 Konev: ${data.konev}
-🧴 Hnojivo: ${data.hnojivo}`
-          );
-        }
-      }
-
-      if (interaction.customId === 'edit_buy') {
-        delete pendingOrders[interaction.user.id];
-        return interaction.reply({ content:"🔁 Použij znovu /kalkulace", ephemeral:true });
-      }
     }
 
   } catch (err) {
     console.error(err);
 
-    if (LOG_CHANNEL_ADMIN) {
-      const ch = await client.channels.fetch(LOG_CHANNEL_ADMIN).catch(()=>null);
-      if (ch) {
-        ch.send(`❌ ERROR\n📛 ${err.message}`);
-      }
-    }
-
     if (!interaction.replied) {
-      interaction.reply({ content:"❌ Chyba aplikace", ephemeral:true });
+      interaction.reply({ content:"❌ Chyba", ephemeral:true });
     }
   }
 });
