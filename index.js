@@ -181,8 +181,10 @@ client.on('interactionCreate', async interaction => {
     const adminLogChannel = await client.channels.fetch(LOG_CHANNEL_ADMIN).catch(() => null);
 
     if (interaction.isChatInputCommand()) {
-
-      await interaction.deferReply({ ephemeral: true });
+      const isKalkulaceCommand = interaction.commandName === 'kalkulace';
+      if (!isKalkulaceCommand) {
+        await interaction.deferReply({ ephemeral: true });
+      }
 
       const commandText = formatCommand(interaction);
 
