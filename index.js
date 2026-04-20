@@ -84,6 +84,36 @@ async function getTodayZtraty(user_id) {
   return (data || []).reduce((sum, z) => sum + z.gramy, 0);
 }
 
+// ===== AUTO UPDATE SKLADU =====
+
+async function updateStavMessage(client) {
+  const channel = await client.channels.fetch(process.env.STAV_CHANNEL_ID).catch(()=>null);
+  if (!channel) return;
+
+  const { data: sklad } = await supabase
+    .from('sklad')
+    .select('*')
+    .eq('id',1)
+    .single();
+
+  const text =
+`📦 STAV SKLADU
+
+💰 Peníze: ${sklad.penize}$
+🌿 Tráva: ${sklad.trava}g
+📦 Sáčky: ${Math.floor(sklad.trava/5)}
+
+🕒 ${new Date().toLocaleTimeString("cs-CZ")}`;
+
+  try {
+    const msg = await channel.messages.fetch(process.env.STAV_MESSAGE_ID);
+    await msg.edit(text);
+  } catch {
+    const msg = await channel.send(text);
+    console.log("👉 Ulož do STAV_MESSAGE_ID:", msg.id);
+  }
+}
+
 // ===== ADMIN LOG FORMAT =====
 function formatCommand(interaction) {
   const name = interaction.commandName;
@@ -196,6 +226,7 @@ client.on('interactionCreate', async interaction => {
         await supabase.from('prodeje').insert({
           user_id, user_name, pocet, castka, datum:new Date()
         });
+        await updateStavMessage(client);
 
         const msg = `💰 ${castka}$ | ${dnes+pocet}/60`;
 
@@ -221,6 +252,7 @@ client.on('interactionCreate', async interaction => {
           gramy,
           datum: new Date()
         });
+        await updateStavMessage(client);
 
         const msg = `🚔 Zabaveno: ${pocet} sáčků (-${gramy}g)`;
 
@@ -292,6 +324,7 @@ client.on('interactionCreate', async interaction => {
         await supabase.from('sklad').update({
           trava: sklad.trava + g
         }).eq('id',1);
+        await updateStavMessage(client);
 
         const msg = `🌿 +${g}g`;
 
@@ -320,6 +353,7 @@ client.on('interactionCreate', async interaction => {
         await supabase.from('sklad').update({
           penize: sklad.penize - c
         }).eq('id',1);
+        await updateStavMessage(client);
 
         const msg = `💸 -${c}$`;
 
@@ -438,6 +472,7 @@ client.on('interactionCreate', async interaction => {
         await supabase.from('sklad').update({
           penize: sklad.penize - total
         }).eq('id',1);
+        await updateStavMessage(client);
 
         delete pendingOrders[interaction.user.id];
 
