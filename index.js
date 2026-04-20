@@ -53,33 +53,64 @@ function num(v) {
   return isNaN(n) ? 0 : n;
 }
 
-// ===== TIME (UTC - stabilní) =====
-function getTodayUTC() {
-  const d = new Date();
-  d.setUTCHours(0, 0, 0, 0);
-  return d;
+// ===== TIME (ČR) =====
+const CZECH_TIMEZONE = 'Europe/Prague';
+
+function getCzechDateTimeParts(date = new Date()) {
+  const formatter = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: CZECH_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+
+  const parts = formatter.formatToParts(date);
+  const get = type => parts.find(p => p.type === type)?.value;
+
+  return {
+    year: get('year'),
+    month: get('month'),
+    day: get('day'),
+    hour: get('hour'),
+    minute: get('minute'),
+    second: get('second')
+  };
+}
+
+function getNowCzechForDb() {
+  const { year, month, day, hour, minute, second } = getCzechDateTimeParts();
+  return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+}
+
+function getTodayCzechStartForDb() {
+  const { year, month, day } = getCzechDateTimeParts();
+  return `${year}-${month}-${day} 00:00:00`;
 }
 
 async function getTodayProdeje(user_id) {
-  const today = getTodayUTC();
+  const today = getTodayCzechStartForDb();
 
   const { data } = await supabase
     .from('prodeje')
     .select('pocet')
     .eq('user_id', user_id)
-    .gte('datum', today.toISOString());
+    .gte('datum', today);
 
   return (data || []).reduce((sum, z) => sum + z.pocet, 0);
 }
 
 async function getTodayZtraty(user_id) {
-  const today = getTodayUTC();
+  const today = getTodayCzechStartForDb();
 
   const { data } = await supabase
     .from('ztraty')
     .select('gramy')
     .eq('user_id', user_id)
-    .gte('datum', today.toISOString());
+    .gte('datum', today);
 
   return (data || []).reduce((sum, z) => sum + z.gramy, 0);
 }
@@ -103,7 +134,7 @@ async function updateStavMessage(client) {
 🌿 Tráva: ${sklad.trava}g
 📦 Sáčky: ${Math.floor(sklad.trava/5)}
 
-🕒 ${new Date().toLocaleTimeString("cs-CZ")}`;
+🕒 ${new Date().toLocaleTimeString("cs-CZ", { timeZone: CZECH_TIMEZONE })}`;
 
   try {
     const msg = await channel.messages.fetch(process.env.STAV_MESSAGE_ID);
@@ -231,7 +262,7 @@ client.on('interactionCreate', async interaction => {
         }).eq('id',1);
 
         await supabase.from('prodeje').insert({
-          user_id, user_name, pocet, castka, datum:new Date()
+          user_id, user_name, pocet, castka, datum: getNowCzechForDb()
         });
         await updateStavMessage(client);
 
@@ -262,7 +293,7 @@ client.on('interactionCreate', async interaction => {
           user_id,
           user_name,
           gramy,
-          datum: new Date()
+          datum: getNowCzechForDb()
         });
         await updateStavMessage(client);
 
