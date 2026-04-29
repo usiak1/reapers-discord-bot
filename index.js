@@ -245,7 +245,8 @@ client.on('interactionCreate', async interaction => {
           return interaction.editReply(msg);
         }
 
-        const castka = vypocet(dnes+pocet) - vypocet(dnes);
+        // const castka = vypocet(dnes+pocet) - vypocet(dnes);
+        const castka = pocet * 165;
         const spotreba = pocet * 5;
 
         const { data: sklad } = await supabase.from('sklad').select('*').eq('id',1).single();
